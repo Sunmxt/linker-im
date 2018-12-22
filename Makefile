@@ -1,21 +1,51 @@
-.PHONY: all format clean clean-all
+.PHONY: all format clean clean-all dep-init build-path
 
-export GOPATH:=$(shell pwd)
+PROJECT_ROOT:=$(shell pwd)
+export GOPATH:=$(PROJECT_ROOT)/build
+
+BINARIES:=bin/linker-gate
 
 all: format bin/linker-gate
 
-src:
-	@ln -s ./ src
+format: 
+	go fmt github.com/linker-im/server/main/linker-gate
+	go fmt github.com/linker-im/server/gate
 
-bin/linker-gate: src
-	go install -v -gcflags='all=-N -l' server/main/linker-gate
+bin/linker-gate: build-path
+	go install -v -gcflags='all=-N -l' github.com/linker-im/server/main/linker-gate
 
-format: src
-	go fmt server/main/linker-gate
-	go fmt server/gate
+# Common rules
+build-path:
+	@ENSURE_DIRS="bin build";					\
+	for dir in $$ENSURE_DIRS; do				\
+		if [ -e "$$dir" ]; then 				\
+			if ! [ -d "$$dir" ]; then			\
+				echo $$dir occupied.; 			\
+				exit 1;							\
+			fi;									\
+		else									\
+			mkdir $$dir;						\
+		fi;										\
+	done
+	@if [ -e "build/bin" ]; then				\
+		if ! [ -h "build/bin" ]; then			\
+			echo build/bin occupied.;			\
+		else									\
+			rm build/bin;						\
+		fi;										\
+	fi
+	@ln -s $$(pwd)/bin build/bin
 
 clean:
-	@if [ -h ./src ]; then rm ./src; fi 
+	@if [ -e "build" ] && [ -d "build" ]; then \
+		rm build -rf;							\
+	fi
 
 clean-all: clean
-	@if [ -e bin/linker-gate ]; then rm bin/linker-gate; fi
+	@for binary in ${BINARIES}; do 	\
+		if [ -e $$binary ]; then 	\
+			rm $$binary;			\
+			echo Remove $$binary; 	\
+		fi;							\
+	 done
+

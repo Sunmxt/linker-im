@@ -1,7 +1,7 @@
 package main
 
 import (
-	"server/gate"
+	"github.com/linker-im/server/gate"
 )
 
 func main() {

@@ -1,9 +1,9 @@
 package gate
 
 import (
-	"fmt"
+	"github.com/linker-im/log"
 )
 
 func Main() {
-	fmt.Print("Linker IM Server Gateway.\n")
+	log.Info("Linker IM Server Gateway.\n")
 }
