@@ -1,7 +1,7 @@
 package gate
 
 import (
-	"github.com/linker-im/log"
+	"github.com/Sunmxt/linker-im/log"
 )
 
 func Main() {

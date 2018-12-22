@@ -8,11 +8,11 @@ BINARIES:=bin/linker-gate
 all: format bin/linker-gate
 
 format: 
-	go fmt github.com/linker-im/server/main/linker-gate
-	go fmt github.com/linker-im/server/gate
+	go fmt github.com/Sunmxt/linker-im/server/main/linker-gate
+	go fmt github.com/Sunmxt/linker-im/server/gate
 
 bin/linker-gate: build-path
-	go install -v -gcflags='all=-N -l' github.com/linker-im/server/main/linker-gate
+	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/main/linker-gate
 
 # Common rules
 build-path:
