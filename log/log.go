@@ -17,7 +17,7 @@ func init() {
 }
 
 func sourceInfo() string {
-    _, file, line_no, ok := runtime.Caller(2)
+    _, file, line_no, ok := runtime.Caller(3)
     if !ok {
         return "?:?"
     }
@@ -29,8 +29,8 @@ func GlobalLogLevel() uint {
     return globalLogLevel
 }
 
-func SetGlobalLogLevel(uint loglevel) {
-    logrus_level = logrus.InfoLevel
+func SetGlobalLogLevel(loglevel uint) {
+    logrus_level := logrus.InfoLevel
     if loglevel > 3 {
         switch loglevel {
         case 4:
@@ -40,8 +40,9 @@ func SetGlobalLogLevel(uint loglevel) {
         }
     }
     logrus.SetLevel(logrus_level)
-    globalLogLevel = logrus_level
+    globalLogLevel = loglevel
 }
+
 
 func Trace(args ...interface{}) {
     logrus.WithFields(logrus.Fields{
@@ -62,81 +63,253 @@ func Info(info_level uint ,args ...interface{}) {
 
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Info(args)
+    }).Info(args...)
 }
 
 func Info0(args ...interface{}) {
-    Info(0, args)
+    Info(0, args...)
 }
 
 func Info1(args ...interface{}) {
-    Info(1, args)
+    Info(1, args...)
 }
 
 func Info2(args ...interface{}) {
-    Info(2, args)
+    Info(2, args...)
 }
 
 func Info3(args ...interface{}) {
-    Info(3, args)
+    Info(3, args...)
+}
+
+func Infof(info_level uint, format string, args ...interface{}) {
+    if info_level > globalLogLevel {
+        return 
+    }
+
+    logrus.WithFields(logrus.Fields{
+        "src": sourceInfo(),
+    }).Infof(format, args...)
+}
+
+func Infof0(format string, args ...interface{}) {
+    Infof(0, format, args...)
+}
+
+func Infof1(format string, args ...interface{}) {
+    Infof(1, format, args...)
+}
+
+func Infof2(format string, args ...interface{}) {
+    Infof(2, format, args...)
+}
+
+func Infof3(format string, args ...interface{}) {
+    Infof(3, format, args...)
 }
 
 func Warn(args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Warn(args)
+    }).Warn(args...)
 }
 
 func Error(args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Error(args)
+    }).Error(args...)
 }
 
 func Fatal(args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Fatal(args)
+    }).Fatal(args...)
 }
 
 func Panic(args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Panic(args)
+    }).Panic(args...)
 }
 
 func Fatalf(format string, args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Fatalf(format, args)
+    }).Fatalf(format, args...)
+}
+
+func Panicf(format string, args ...interface{}) {
+    logrus.WithFields(logrus.Fields{
+        "src": sourceInfo(),
+    }).Panicf(format, args...)
 }
 
 func TraceMap(kv map[string]interface{}, args ...interface{}) {
     kv["src"] = sourceInfo()
-    logrus.WithFields(kv).Trace(args)
+    logrus.WithFields(kv).Trace(args...)
 }
 
 func DebugMap(kv map[string]interface{}, args ...interface{}) {
     kv["src"] = sourceInfo()
-    logrus.WithFields(kv).Debug(args)
+    logrus.WithFields(kv).Debug(args...)
 }
 
 func WarnMap(kv map[string]interface{}, args ...interface{}) {
     kv["src"] = sourceInfo()
-    logrus.WithFields(kv).Warn(args)
+    logrus.WithFields(kv).Warn(args...)
+}
+
+func InfoMap(kv map[string]interface{}, args ...interface{}) {
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Info(args...)
 }
 
 func ErrorMap(kv map[string]interface{}, args ...interface{}) {
     kv["src"] = sourceInfo()
-    logrus.WithFields(kv).Error(args)
+    logrus.WithFields(kv).Error(args...)
 }
 
 func FatalMap(kv map[string]interface{}, args ...interface{}) {
     kv["src"] = sourceInfo()
-    logrus.WithFields(kv).Fatal(args)
+    logrus.WithFields(kv).Fatal(args...)
 }
 
 func PanicMap(kv map[string]interface{}, args ...interface{}) {
     kv["src"] = sourceInfo()
-    logrus.WithFields(kv).Panic(args)
+    logrus.WithFields(kv).Panic(args...)
 }
+
+// Logger
+type Logger struct {
+    Fields      map[string]interface{}
+}
+
+func NewLogger() *Logger {
+    return &Logger{
+        Fields:     make(map[string]interface{}),
+    }
+}
+
+func (logger *Logger) Trace(args ...interface{}) {
+    TraceMap(logger.Fields, args...)
+}
+
+func (logger *Logger) Debug(args ...interface{}) {
+    DebugMap(logger.Fields, args...)
+}
+
+func (logger *Logger) Info(info_level uint ,args ...interface{}) {
+    InfoMap(logger.Fields, args...)
+}
+
+func (logger *Logger) Info0(args ...interface{}) {
+    logger.Info(0, args...)
+}
+
+func (logger *Logger) Info1(args ...interface{}) {
+    logger.Info(1, args...)
+}
+
+func (logger *Logger) Info2(args ...interface{}) {
+    logger.Info(2, args...)
+}
+
+func (logger *Logger) Info3(args ...interface{}) {
+    logger.Info(3, args...)
+}
+
+func (logger *Logger) Infof(info_level uint, format string, args ...interface{}) {
+    if info_level > globalLogLevel {
+        return 
+    }
+    InfoMap(logger.Fields, fmt.Sprintf(format, args...))
+}
+
+func (logger *Logger) Infof0(format string, args ...interface{}) {
+    Infof(0, format, args...)
+}
+
+func (logger *Logger) Infof1(format string, args ...interface{}) {
+    Infof(1, format, args...)
+}
+
+func (logger *Logger) Infof2(format string, args ...interface{}) {
+    Infof(2, format, args...)
+}
+
+func (logger *Logger) Infof3(format string, args ...interface{}) {
+    Infof(3, format, args...)
+}
+
+func (logger *Logger) Warn(args ...interface{}) {
+    WarnMap(logger.Fields, args...)
+}
+
+func (logger *Logger) Error(args ...interface{}) {
+    ErrorMap(logger.Fields, args...)
+}
+
+func (logger *Logger) Fatal(args ...interface{}) {
+    FatalMap(logger.Fields, args...)
+}
+
+func (logger *Logger) Panic(args ...interface{}) {
+    PanicMap(logger.Fields, args...)
+}
+
+func (logger *Logger) Fatalf(format string, args ...interface{}) {
+    FatalMap(logger.Fields, fmt.Sprintf(format, args...))
+}
+
+func (logger *Logger) Panicf(format string, args ...interface{}) {
+    PanicMap(logger.Fields, fmt.Sprintf(format, args...))
+}
+
+func updateMap(dst map[string]interface{}, src map[string]interface{}) {
+    for k, v := range src {
+        dst[k] = v
+    }
+}
+ 
+func (logger *Logger) TraceMap(kv map[string]interface{}, args ...interface{}) {
+    updateMap(kv, logger.Fields) 
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Trace(args...)
+}
+
+func (logger *Logger) DebugMap(kv map[string]interface{}, args ...interface{}) {
+    updateMap(kv, logger.Fields) 
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Debug(args...)
+}
+
+func (logger *Logger) WarnMap(kv map[string]interface{}, args ...interface{}) {
+    updateMap(kv, logger.Fields) 
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Warn(args...)
+}
+
+func (logger *Logger) InfoMap(kv map[string]interface{}, args ...interface{}) {
+    updateMap(kv, logger.Fields) 
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Info(args...)
+}
+
+func (logger *Logger) ErrorMap(kv map[string]interface{}, args ...interface{}) {
+    updateMap(kv, logger.Fields) 
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Error(args...)
+}
+
+func (logger *Logger) FatalMap(kv map[string]interface{}, args ...interface{}) {
+    updateMap(kv, logger.Fields) 
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Fatal(args...)
+}
+
+func (logger *Logger) PanicMap(kv map[string]interface{}, args ...interface{}) {
+    updateMap(kv, logger.Fields) 
+    kv["src"] = sourceInfo()
+    logrus.WithFields(kv).Panic(args...)
+}
+
