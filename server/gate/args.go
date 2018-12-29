@@ -17,6 +17,7 @@ type GatewayOptions struct {
 	ManageEndpoint   *cmdline.NetEndpointValue
 	APIEndpoint      *cmdline.NetEndpointValue
 	RedisEndpoint    *cmdline.NetEndpointValue
+	ServiceEndpoints *cmdline.NetEndpointSetValue
 }
 
 func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfigure) error {
@@ -40,16 +41,26 @@ func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfig
 		}
 	}
 
+	if options.ServiceEndpoints.IsDefault && cfg.ServiceEndpoints != "" {
+		if err := options.ServiceEndpoints.Set(cfg.ServiceEndpoints); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (options *GatewayOptions) SetDefault() error {
+	if options.ServiceEndpoints.String() == "" {
+		return fmt.Errorf("No service node found. (See \"-service-endpoints\")")
+	}
 	return nil
 }
 
 func configureParse() (*GatewayOptions, error) {
 	var err error = nil
 	var api_endpoint, manage_endpoint, redis_endpoint *cmdline.NetEndpointValue
+	var serviceEndpoints *cmdline.NetEndpointSetValue
 
 	if manage_endpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp", "http", "https"}, "127.0.0.1:12361"); err != nil {
 		log.Panicf("Flag value creating failure: %v", err.Error())
@@ -63,6 +74,10 @@ func configureParse() (*GatewayOptions, error) {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
 	}
+	if serviceEndpoints, err = cmdline.NewNetEndpointSetValueDefault([]string{"tcp"}, ""); err != nil {
+		log.Panicf("Flag value creating failure: %v", err.Error())
+		return nil, err
+	}
 
 	options := &GatewayOptions{
 		ExternalConfig:   cmdline.NewStringValue(),
@@ -71,6 +86,7 @@ func configureParse() (*GatewayOptions, error) {
 		ManageEndpoint:   manage_endpoint,
 		APIEndpoint:      api_endpoint,
 		RedisEndpoint:    redis_endpoint,
+		ServiceEndpoints: serviceEndpoints,
 	}
 
 	flag.Var(options.ExternalConfig, "config", "Configure YAML.")
@@ -79,6 +95,7 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.APIEndpoint, "endpoint", "Public API binding Endpoint.")
 	flag.Var(options.ManageEndpoint, "manage-endpoint", "Manage API Endpoint.")
 	flag.Var(options.RedisEndpoint, "redis-endpoint", "Redis cache endpoint.")
+	flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
 
 	flag.Parse()
 
@@ -91,6 +108,7 @@ func configureParse() (*GatewayOptions, error) {
 			IMEnableManagementAPI: false,
 			ManageEndpoint:        "",
 			RedisEndpoint:         "",
+			ServiceEndpoints:      "",
 		}
 
 		log.Info0("External configure: %v", options.ExternalConfig.Value)
@@ -108,5 +126,8 @@ func configureParse() (*GatewayOptions, error) {
 		}
 	}
 
+	if err = options.SetDefault(); err != nil {
+		return nil, err
+	}
 	return options, err
 }

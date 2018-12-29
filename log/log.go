@@ -132,6 +132,12 @@ func Panic(args ...interface{}) {
     }).Panic(args...)
 }
 
+func Warnf(format string, args ...interface{}) {
+    logrus.WithFields(logrus.Fields{
+        "src": sourceInfo(),
+    }).Warnf(format, args...)
+}
+
 func Fatalf(format string, args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),

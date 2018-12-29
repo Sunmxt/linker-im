@@ -11,4 +11,5 @@ type GatewayConfigure struct {
 	IMEnableManagementAPI bool   `enable-manage-api,omitempty`
 	ManageEndpoint        string `manage-endpoint,omitempty`
 	RedisEndpoint         string `redis-endpoint,omitempty`
+	ServiceEndpoints      string `service-endpoints,omitempty`
 }

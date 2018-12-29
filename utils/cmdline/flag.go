@@ -133,9 +133,11 @@ func (val *NetEndpointValue) SetAuthority(authority string) error {
     return nil
 }
 
-func NewNetEndpointValueDefault(valid_schemes []string, net_endpoint string) (*NetEndpointValue, error) {
-    new_instance := &NetEndpointValue{}
-    err := new_instance.Set(net_endpoint)
+func NewNetEndpointValueDefault(validSchemes []string, netEndpoint string) (*NetEndpointValue, error) {
+    new_instance := &NetEndpointValue{
+        ValidSchemes:       validSchemes,
+    }
+    err := new_instance.Set(netEndpoint)
     if err != nil {
         return nil, err
     }
@@ -143,8 +145,8 @@ func NewNetEndpointValueDefault(valid_schemes []string, net_endpoint string) (*N
     return new_instance, nil
 }
 
-func NewNetEndpointValue(valid_schemes []string) (*NetEndpointValue, error) {
-    return NewNetEndpointValueDefault(valid_schemes, "")
+func NewNetEndpointValue(validSchemes []string) (*NetEndpointValue, error) {
+    return NewNetEndpointValueDefault(validSchemes, "")
 }
 
 func (val *NetEndpointValue) Set(raw string) error {
@@ -156,29 +158,18 @@ func (val *NetEndpointValue) Set(raw string) error {
         scheme = ""
         authority = ""
     } else {
-        idx_colon := strings.Index(raw, ":")
-
+        idx_colon := strings.Index(raw, "://")
         // Determine scheme
         if idx_colon != -1 {
             scheme = raw[:idx_colon]
+            authority = raw[idx_colon + 3:]
             if !val.IsSchemeValid(scheme) {
-                // If the splitted part is invalid, try to treat it as host
-                if -1 == strings.Index(raw[idx_colon + 1:], ":") {
-                    authority = raw
-                    scheme = ""
-                } else {
-                    // Since the ':' third seperated part found, the first cannot be treated as host.
-                    // Return an error.
-                    val.Error = fmt.Errorf("Unsupported network endpoint scheme: %v", scheme)
-                    return val.Error
-                }
-            } else {
-                // If the splitted part is valid, treat it as scheme.
-                authority = raw[idx_colon + 1:]
+                val.Error = fmt.Errorf("Unsupported network endpoint scheme: %v", scheme)
+                return val.Error
             }
         } else {
             scheme = ""
-            authority = raw        
+            authority = raw
         }
 
         // Parse authority part.
@@ -193,21 +184,23 @@ func (val *NetEndpointValue) Set(raw string) error {
 }
 
 func (val *NetEndpointValue) String() string {
-    scheme_raw, user_info_raw, port_raw := "", "", ""
+    scheme_raw := ""
 
     if val.Scheme != "" {
         scheme_raw = val.Scheme + "://"
     }
+    return scheme_raw + val.AuthorityString()
+}
 
+func (val *NetEndpointValue) AuthorityString() string {
+    userInfoRaw, portRaw := "", ""
     if val.UserInfo != "" {
-        user_info_raw = val.UserInfo + "@"
+        userInfoRaw = val.UserInfo + "@"
     }
-    
     if val.HasPort {
-        port_raw = fmt.Sprintf(":%v", val.Port)
+        portRaw = fmt.Sprintf(":%v", val.Port)
     }
-
-    return scheme_raw + user_info_raw + val.Host + port_raw
+    return userInfoRaw + val.Host + portRaw
 }
 
 // BoolValue
@@ -251,4 +244,61 @@ func (val *BoolValue) String() string {
         return "false"
     }
     return "Unknown"
+}
+
+
+// NetEndpointSetValue
+type NetEndpointSetValue struct {
+    Endpoints       map[string]*NetEndpointValue
+    ValidSchemes    []string
+    IsDefault       bool
+}
+
+func NewNetEndpointSetValueDefault(validSchemes []string, netEndpointSet string) (*NetEndpointSetValue, error) {
+    instance := &NetEndpointSetValue{
+        Endpoints:      make(map[string]*NetEndpointValue, 0),
+        ValidSchemes:   validSchemes,
+        IsDefault:      true,
+    }
+
+    if err := instance.Set(netEndpointSet); err != nil {
+        return nil, err
+    }
+    instance.IsDefault = true
+
+    return instance, nil
+}
+
+func NewNetEndpointSetValue(validSchemes []string) (*NetEndpointSetValue, error) {
+    return NewNetEndpointSetValueDefault(validSchemes, "")
+}
+
+func (val *NetEndpointSetValue) Set(raw string) error {
+    defer func() {
+        val.IsDefault = false
+    }()
+
+    if raw == "" {
+        return nil
+    }
+    for _, endpoint := range strings.Split(raw, ",") {
+        parts := strings.SplitN(endpoint, "=", 2)
+        if len(parts) < 2 {
+            return fmt.Errorf("Invalid endpoint format: Endpoint name should be specified: %v", endpoint)
+        }
+        endpointValue, err := NewNetEndpointValueDefault(val.ValidSchemes, parts[1])
+        if err != nil {
+            return fmt.Errorf("Invalid endpoint format: %v", err.Error())
+        }
+        val.Endpoints[parts[0]] = endpointValue
+    }
+    return nil
+}
+
+func (val *NetEndpointSetValue) String() string {
+    rawEndpointList := make([]string, 0, len(val.Endpoints))
+    for k, v := range val.Endpoints {
+        rawEndpointList = append(rawEndpointList, fmt.Sprintf("%v=%v", k, v))
+    }
+    return strings.Join(rawEndpointList, ",")
 }

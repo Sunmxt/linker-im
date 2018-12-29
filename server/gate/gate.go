@@ -20,13 +20,14 @@ func init() {
 	registerAPIEndpoints(Handler)
 }
 
-func DumpConfigure() {
-	log.Infof0("--config=%v", Config.ExternalConfig.String())
-	log.Infof0("--log-level=%v", Config.LogLevel.String())
-	log.Infof0("--endpoint=%v", Config.APIEndpoint.String())
-	log.Infof0("--manage-endpoint=%v", Config.ManageEndpoint.String())
-	log.Infof0("--enable-public-management=%v", Config.PublicManagement.String())
-	log.Infof0("--redis-endpoint=%v", Config.RedisEndpoint.String())
+func LogConfigure() {
+	log.Infof0("-config=%v", Config.ExternalConfig.String())
+	log.Infof0("-log-level=%v", Config.LogLevel.String())
+	log.Infof0("-endpoint=%v", Config.APIEndpoint.String())
+	log.Infof0("-manage-endpoint=%v", Config.ManageEndpoint.String())
+	log.Infof0("-enable-public-management=%v", Config.PublicManagement.String())
+	log.Infof0("-redis-endpoint=%v", Config.RedisEndpoint.String())
+	log.Infof0("-services-endpoint=\"%v\"", Config.ServiceEndpoints.String())
 }
 
 func Main() {
@@ -39,7 +40,7 @@ func Main() {
 	log.Infof0("Linker IM Server Gateway Start.")
 
 	Config = config
-	DumpConfigure()
+	LogConfigure()
 
 	// Log level
 	log.Infof0("Log Level: %v", Config.LogLevel.Value)
@@ -55,5 +56,7 @@ func Main() {
 	}
 
 	log.Trace("APIServer Object:", api_server)
-	api_server.ListenAndServe()
+	if err = api_server.ListenAndServe(); err != nil {
+		log.Fatalf("Failed to serve API: %s", err.Error())
+	}
 }

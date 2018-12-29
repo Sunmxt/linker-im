@@ -1,17 +1,26 @@
-.PHONY: all format clean clean-all dep-init build-path
+.PHONY: all format clean clean-all dep-init build-path delve-dbg-gate delev-dbg-svc
 
 PROJECT_ROOT:=$(shell pwd)
 export GOPATH:=$(PROJECT_ROOT)/build
 
 BINARIES:=bin/linker-gate
 
-all: format bin/linker-gate
+all: format bin/linker-gate bin/linker-svc
 
 format: 
 	go fmt github.com/Sunmxt/linker-im/server/...
 
 bin/linker-gate: build-path
 	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/main/linker-gate
+
+bin/linker-svc: build-path
+	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/main/linker-svc
+
+delve-dbg-gate:
+	@echo Not implemented.
+
+delve-dbg-svc:
+	@echo Not implemented.
 
 # Common rules
 build-path:
