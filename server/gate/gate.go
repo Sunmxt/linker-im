@@ -3,6 +3,7 @@ package gate
 import (
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/server/gate/api"
+	"github.com/Sunmxt/linker-im/server/resource"
 	"net/http"
 )
 
@@ -30,7 +31,13 @@ func LogConfigure() {
 	log.Infof0("-services-endpoint=\"%v\"", Config.ServiceEndpoints.String())
 }
 
+func RegisterResources() error {
+	NewServiceEndpointSetFromFlag(Config.ServiceEndpoints)
+	return nil
+}
+
 func Main() {
+    fmt.Println("Protocol exporter of Linker IM.")
 	config, err := configureParse()
 	if config == nil {
 		log.Fatalf("%v", err.Error())
@@ -53,6 +60,11 @@ func Main() {
 		Handler: log.TagLogHandler(Handler, map[string]interface{}{
 			"entity": "APIRequest",
 		}),
+	}
+
+	if err = RegisterResources(); err != nil {
+		log.Fatalf("Failed to register resource: %v", err.Error())
+		return
 	}
 
 	log.Trace("APIServer Object:", api_server)

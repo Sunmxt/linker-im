@@ -61,6 +61,7 @@ func ServeRPC() error {
 }
 
 func Main() {
+    fmt.Println("Service node of Linker IM.")
 	opt, err := configureParse()
 	if opt == nil {
 		log.Fatalf("%v", err.Error())
