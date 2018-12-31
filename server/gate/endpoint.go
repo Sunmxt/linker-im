@@ -18,6 +18,9 @@ import (
 // ServiceEndpoint is server implementing Logics.
 type ServiceEndpoint struct {
 	Name            string
+	Network         string
+	Address         string
+	RPCPath         string
 	Disabled        bool
 	KeepalivePeriod uint32
 	svcRPC.NodeID
@@ -31,19 +34,18 @@ type ServiceEndpoint struct {
 }
 
 func NewServiceEndpoint(name, network, address, rpcPath string) (*ServiceEndpoint, error) {
-	client, err := rpc.DialHTTPPath(network, address, rpcPath)
-	if err != nil {
-		return nil, err
-	}
-
 	instance := &ServiceEndpoint{
 		hash:             0,
 		Disabled:         true,
 		keepaliveRunning: 0,
 		stop:             make(chan error),
 		start:            make(chan error),
-		rpcClient:        client,
+		rpcClient:        nil,
 		Name:             name,
+		Network:          network,
+		Address:          address,
+		RPCPath:          rpcPath,
+		KeepalivePeriod:  10,
 	}
 	instance.ResetHash()
 	return instance, nil
@@ -74,7 +76,7 @@ func (ep *ServiceEndpoint) disable(set *ServiceEndpointSet) {
 	// remove myself from ring
 	set.ring.RemoveHash(ep.hash)
 	ep.Disabled = true
-	log.Infof0("Disable inactive service endpoint %v.", ep.Name)
+	log.Infof0("Disable inactive service endpoint \"%v\".", ep.Name)
 }
 
 func (ep *ServiceEndpoint) enable(set *ServiceEndpointSet) {
@@ -84,7 +86,7 @@ func (ep *ServiceEndpoint) enable(set *ServiceEndpointSet) {
 	// append myself to ring
 	set.ring.Append(ep)
 	ep.Disabled = false
-	log.Infof0("Enable active service endpoint %v.", ep.Name)
+	log.Infof0("Enable active service endpoint \"%v\" (Hash = %v).", ep.Name, ep.Hash())
 }
 
 func (ep *ServiceEndpoint) changeID(nodeID *svcRPC.NodeID, set *ServiceEndpointSet) {
@@ -97,12 +99,13 @@ func (ep *ServiceEndpoint) changeID(nodeID *svcRPC.NodeID, set *ServiceEndpointS
 
 	if !bytes.Equal(ep.NodeID[:], svcRPC.EMPTY_NODE_ID) {
 		delete(set.FromID, ep.NodeID.AsKey())
-		log.Infof0("Service endpoint %v ID Changed: %v -> %v", ep.NodeID.String(), nodeID.String())
+		log.Infof0("Service endpoint \"%v\" ID Changed: %v -> %v", ep.Name, ep.NodeID.String(), nodeID.String())
 	} else {
-		log.Infof0("Service endpoint %v joined with ID: %v", nodeID.String())
+		log.Infof0("Service endpoint \"%v\" joined with ID: %v", ep.Name, nodeID.String())
 	}
 	set.FromID[nodeID.AsKey()] = ep
 	ep.NodeID.Assign(nodeID)
+	ep.ResetHash()
 }
 
 func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
@@ -111,27 +114,43 @@ func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
 	}
 
 	go func() {
-		log.Infof0("Endpoint %v: start keepalive.", ep.Name)
+		var err error = nil
+		log.Infof0("Start keepalive with endpoint \"%v\".", ep.Name)
 		ep.start <- nil
 		failureTimes := 0
 
 		for ep.keepaliveRunning > 0 {
-			rpcBeginTime := time.Now()
-			err, info := ep.Keepalive(set.GateID)
-			cost := time.Now().Sub(rpcBeginTime) / 1000000
-			if err != nil {
-				failureTimes += 1
-				log.Infof0("Endpoint %v [%v ms]: keepalive failure %v - %v", failureTimes, cost, err.Error())
-				if failureTimes >= 4 {
-					log.Infof0("Endpoint %v: service endpoint may fail.")
-					ep.disable(set)
+			if ep.rpcClient == nil {
+				ep.rpcClient, err = rpc.DialHTTPPath(ep.Network, ep.Address, ep.RPCPath)
+				if err != nil {
+					log.Infof0("Failed to connect service endpoint %v (%v).", ep.Name, err.Error())
+					ep.rpcClient = nil
+				} else {
+					continue
 				}
-			} else {
-				log.Infof0("Endpoint %v [%v ms]: keepalive succeed.", cost)
 				failureTimes = 0
-				ep.changeID(&info.NodeID, set)
-				if ep.Disabled == true {
-					ep.enable(set)
+			} else {
+				rpcBeginTime := time.Now()
+				err, info := ep.Keepalive(set.GateID)
+				cost := int64(time.Now().Sub(rpcBeginTime)) / 1000000
+				if err != nil {
+					failureTimes += 1
+					log.Infof0("[%v ms] Keepalive failure %v with service endpoint \"%v\". (%v)", cost, failureTimes, ep.Name, err.Error())
+					if failureTimes > 1 {
+						ep.disable(set)
+
+						log.Infof0("Service endpoint \"%v\" may fail. Fallback to dial.", ep.Name)
+						ep.rpcClient.Close()
+						ep.rpcClient = nil
+						continue
+					}
+				} else {
+					log.Infof2("[%v ms] Keepalive succeed with service endpoint \"%v\".", cost, ep.Name)
+					failureTimes = 0
+					ep.changeID(&info.NodeID, set)
+					if ep.Disabled == true {
+						ep.enable(set)
+					}
 				}
 			}
 			<-time.After(time.Duration(ep.KeepalivePeriod) * time.Second)

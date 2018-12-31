@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"sort"
 )
 
@@ -71,6 +72,7 @@ func (r *HashRing) Append(bucket Bucket) (int, Bucket) {
 
 	oriLen := len(r.ring)
 	idx := oriLen
+	r.ring = append(r.ring, nil)
 	for ; idx > 0 && bucket.Hash() < r.ring[idx-1].Hash(); idx-- {
 		r.ring[idx] = r.ring[idx-1]
 	}
@@ -113,7 +115,7 @@ func (r *HashRing) Hit(instance Hashable) (int, Bucket) {
 // Find bucket whose hash is equal to the given.
 func (r *HashRing) FromHash(hash uint32) (int, Bucket) {
 	idx, bucket := r.HashHit(hash)
-	if bucket.Hash() != hash {
+	if bucket == nil || bucket.Hash() != hash {
 		return -1, nil
 	}
 	return idx, bucket
@@ -140,9 +142,9 @@ func (r *HashRing) uniquify(buckets []Bucket) bool {
 func (r *HashRing) Substitute(buckets []Bucket) {
 	r.ring = r.ring[0:0] // Clear
 	// Copy
-	for idx, bucket := range buckets {
+	r.ring = append(r.ring, buckets...)
+	for _, bucket := range r.ring {
 		bucket.ResetHash()
-		r.ring[idx] = bucket
 	}
 	r.uniquify(r.ring)
 	sort.Stable(r)
@@ -158,10 +160,15 @@ func (r *HashRing) Remove(index int) (Bucket, Bucket) {
 	}
 	// shrink.
 	r.ring = r.ring[:len(r.ring)-1]
+	if len(r.ring) == 0 {
+		return removed, nil
+	}
 	return removed, r.ring[index]
 }
 
 func (r *HashRing) RemoveHash(hash uint32) (Bucket, Bucket) {
+	fmt.Println(r)
 	idx, _ := r.FromHash(hash)
+	fmt.Println(idx)
 	return r.Remove(idx)
 }

@@ -37,20 +37,22 @@ func ServeRPC() error {
 	rpcServer.Register(rpcRuntime)
 
 	// Mux
+	healthCheckMux := http.NewServeMux()
+	healthCheckMux.HandleFunc("/", Healthz)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", Healthz)
-	mux.Handle(svcRPC.RPC_PREFIX, rpcServer)
+	mux.Handle("/healthz", log.TagLogHandler(healthCheckMux, map[string]interface{}{
+		"entity": "health-check",
+	}))
+	mux.Handle(svcRPC.RPC_PATH, rpcServer)
 
 	// Serve RPC
 	switch Config.Endpoint.Scheme {
 	case "tcp":
 		httpServer := &http.Server{
-			Addr: Config.Endpoint.AuthorityString(),
-			Handler: log.TagLogHandler(mux, map[string]interface{}{
-				"entity": "rpc",
-			}),
+			Addr:    Config.Endpoint.AuthorityString(),
+			Handler: mux,
 		}
-		rpcServer.HandleHTTP(svcRPC.RPC_PATH, svcRPC.RPC_DEBUG_PATH)
+		//rpcServer.HandleHTTP(svcRPC.RPC_PATH, svcRPC.RPC_DEBUG_PATH)
 		log.Infof0("RPC Serve at %v", Config.Endpoint.String())
 		err = httpServer.ListenAndServe()
 	default:

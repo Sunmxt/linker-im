@@ -30,11 +30,8 @@ func (n *NodeID) Assign(id *NodeID) {
 }
 
 // RPC Runtime
-const RPC_PREFIX = "/_rpc"
-const _RPC_PATH = "/__linker_svc"
-const _RPC_DEBUG_PATH = "/__linker_svc_debug"
-const RPC_PATH = RPC_PREFIX + _RPC_PATH
-const RPC_DEBUG_PATH = RPC_PREFIX + _RPC_DEBUG_PATH
+const RPC_PATH = "/__rpc_linker_svc"
+const RPC_DEBUG_PATH = "/__rpc_linker_svc_debug"
 
 type ServiceRPC struct {
 	NodeID
@@ -50,7 +47,7 @@ type KeepaliveServiceInformation struct {
 }
 
 func (svc ServiceRPC) Keepalive(gateInfo *KeepaliveGatewayInformation, serviceInfo *KeepaliveServiceInformation) error {
-	log.Infof0("Keepalive from gateway %v.", gateInfo.NodeID.String())
+	log.Infof2("Keepalive from gateway %v.", gateInfo.NodeID.String())
 	*serviceInfo = KeepaliveServiceInformation{
 		NodeID: svc.NodeID,
 	}

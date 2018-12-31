@@ -3,12 +3,14 @@ package gate
 import (
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/server/gate/api"
+	svcRPC "github.com/Sunmxt/linker-im/server/svc/rpc"
 	//"github.com/Sunmxt/linker-im/server/resource"
 	"fmt"
 	"net/http"
 )
 
 var Config *GatewayOptions
+var NodeID svcRPC.NodeID
 
 var Handler *http.ServeMux
 
@@ -33,7 +35,9 @@ func LogConfigure() {
 }
 
 func RegisterResources() error {
-	NewServiceEndpointSetFromFlag(Config.ServiceEndpoints)
+	svcEndpointSet := NewServiceEndpointSetFromFlag(Config.ServiceEndpoints)
+	svcEndpointSet.GateID = NodeID
+	svcEndpointSet.GoKeepalive()
 	return nil
 }
 
@@ -51,20 +55,23 @@ func Main() {
 	LogConfigure()
 
 	// Log level
-	log.Infof0("Log Level: %v", Config.LogLevel.Value)
+	log.Infof0("Log Level is %v.", Config.LogLevel.Value)
 	log.SetGlobalLogLevel(Config.LogLevel.Value)
 
+	NodeID = svcRPC.NewNodeID()
+	log.Infof0("Gateway Node ID is %v.", NodeID.String())
+
 	// Serve IM API
-	log.Infof0("IM API Serve at %v", config.APIEndpoint.String())
+	log.Infof0("IM API Serve at %v.", config.APIEndpoint.String())
 	api_server := http.Server{
 		Addr: config.APIEndpoint.String(),
 		Handler: log.TagLogHandler(Handler, map[string]interface{}{
-			"entity": "APIRequest",
+			"entity": "http-api",
 		}),
 	}
 
 	if err = RegisterResources(); err != nil {
-		log.Fatalf("Failed to register resource: %v", err.Error())
+		log.Fatalf("Failed to register resource \"%v\".", err.Error())
 		return
 	}
 

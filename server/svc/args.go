@@ -59,7 +59,7 @@ func configureParse() (*ServiceOptions, error) {
 
 	const FLAGS_CREATING_FAILURE = "Flag value creating failure: %v"
 
-	if RPCEndpoint, err = cmdline.NewNetEndpointValueDefault([]string{"http", "tcp"}, "0.0.0.0:12360"); err != nil {
+	if RPCEndpoint, err = cmdline.NewNetEndpointValueDefault([]string{"http", "tcp"}, "0.0.0.0:12361"); err != nil {
 		log.Panicf(FLAGS_CREATING_FAILURE, err.Error())
 		return nil, err
 	}

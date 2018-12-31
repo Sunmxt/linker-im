@@ -4,6 +4,7 @@ import (
     "net/http"
     "fmt"
     "math/rand"
+    "strings"
 )
 
 // Constants
@@ -60,6 +61,7 @@ func TagLogHandler(handlerFunc http.Handler, tags map[string]interface{}) *Logge
 func (fun *LoggedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     var statusCode int = 200
     var bodySize uint64 = 0
+    var logUserAgent string
 
     proxyWriteHeader := func (code int) {
         statusCode = code
@@ -79,8 +81,13 @@ func (fun *LoggedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
     sid := rand.Uint32()
     // Log briefly
-    userAgent, _ := r.Header["User-Agent"]
-    InfoMap(fun.Tags, fmt.Sprintf("(%x)[%v] %v %v %v %v %v %v", sid, r.RemoteAddr ,r.Method, r.RequestURI, statusCode, r.ContentLength, bodySize, userAgent[0]))
+    userAgent, ok := r.Header["User-Agent"]
+    if ok {
+        logUserAgent = strings.Join(userAgent, ",")
+    } else {
+        logUserAgent = ""
+    }
+    InfoMap(fun.Tags, fmt.Sprintf("(%x)[%v] %v %v %v %v %v %v", sid, r.RemoteAddr ,r.Method, r.RequestURI, statusCode, r.ContentLength, bodySize, logUserAgent))
 
     // Log Header (Debug level only)
     if GlobalLogLevel() > 3 {
