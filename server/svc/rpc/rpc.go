@@ -11,12 +11,22 @@ import (
 // Node ID
 type NodeID guuid.UUID
 
+var EMPTY_NODE_ID []byte = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
 func NewNodeID() NodeID {
 	return NodeID(guuid.NewV4())
 }
 
 func (n *NodeID) String() string {
 	return strings.Replace(guuid.UUID(*n).String(), "-", "", -1)
+}
+
+func (n *NodeID) AsKey() string {
+	return string(n[:])
+}
+
+func (n *NodeID) Assign(id *NodeID) {
+	copy(n[:], id[:])
 }
 
 // RPC Runtime
@@ -31,7 +41,7 @@ type ServiceRPC struct {
 }
 
 // Keepalive
-type KeepaliveGatewayInfomation struct {
+type KeepaliveGatewayInformation struct {
 	NodeID
 }
 
@@ -39,7 +49,7 @@ type KeepaliveServiceInformation struct {
 	NodeID
 }
 
-func (svc ServiceRPC) Keepalive(gateInfo *KeepaliveGatewayInfomation, serviceInfo *KeepaliveServiceInformation) error {
+func (svc ServiceRPC) Keepalive(gateInfo *KeepaliveGatewayInformation, serviceInfo *KeepaliveServiceInformation) error {
 	log.Infof0("Keepalive from gateway %v.", gateInfo.NodeID.String())
 	*serviceInfo = KeepaliveServiceInformation{
 		NodeID: svc.NodeID,

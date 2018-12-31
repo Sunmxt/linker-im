@@ -54,18 +54,18 @@ func (options *GatewayOptions) SetDefault() error {
 	if options.ServiceEndpoints.String() == "" {
 		return fmt.Errorf("No service node found. (See \"-service-endpoints\")")
 	}
-    if options.RedisEndpoint.Host == "" {
-        return fmt.Errorf("Redis endpoint hosts hould not be empty. (See \"-redis-endpoint\")")
-    }
-    if !options.RedisEndpoint.HasPort {
-        return fmt.Errorf("Redis endpoint port should be specified. (See \"-redis-endpoint\")")
-    }
-    if options.RedisEndpoint.Port == 0 || options.RedisEndpoint.Port > 0xFFFF {
-        return fmt.Errorf("Redis endpoint port should not be %v. (See \"-redis-endpoint\")", options.RedisEndpoint.Port)
-    }
-    if options.RedisEndpoint.Scheme == "" {
-        options.RedisEndpoint.Scheme = "tcp"
-    }
+	if options.RedisEndpoint.Host == "" {
+		return fmt.Errorf("Redis endpoint hosts hould not be empty. (See \"-redis-endpoint\")")
+	}
+	if !options.RedisEndpoint.HasPort {
+		return fmt.Errorf("Redis endpoint port should be specified. (See \"-redis-endpoint\")")
+	}
+	if options.RedisEndpoint.Port == 0 || options.RedisEndpoint.Port > 0xFFFF {
+		return fmt.Errorf("Redis endpoint port should not be %v. (See \"-redis-endpoint\")", options.RedisEndpoint.Port)
+	}
+	if options.RedisEndpoint.Scheme == "" {
+		options.RedisEndpoint.Scheme = "tcp"
+	}
 	return nil
 }
 

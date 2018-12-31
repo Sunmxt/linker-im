@@ -138,6 +138,12 @@ func Warnf(format string, args ...interface{}) {
     }).Warnf(format, args...)
 }
 
+func Errorf(format string, args ...interface{}) {
+    logrus.WithFields(logrus.Fields{
+        "src": sourceInfo(),
+    }).Errorf(format, args...)
+}
+
 func Fatalf(format string, args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),

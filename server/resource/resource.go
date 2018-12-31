@@ -17,7 +17,7 @@ type Resource struct {
 func NewResource(identifier string) *Resource {
 	return &Resource{
 		Identifier:  identifier,
-		Authorizors: make(map[string]Authorizors),
+		Authorizors: make(map[string]Authorizor),
 	}
 }
 
@@ -27,8 +27,8 @@ func (res *Resource) AddAuthorizor(authorizor Authorizor) error {
 	defer res.lock.Unlock()
 
 	// If identifier exists.
-	identifier := authorizor.Identifier()
-	if ok, _ := res.Authorizors[identifier]; ok {
+	identifier := authorizor.Identity()
+	if _, ok := res.Authorizors[identifier]; ok {
 		return fmt.Errorf("Failed to register authorizor \"%v\": Identifier already exists.", identifier)
 	}
 
@@ -46,7 +46,7 @@ func (res *Resource) ListAuthorizors(authorizor Authorizor) map[string]Authorizo
 
 	snapshot := make(map[string]Authorizor)
 
-	for identifier, authorizor := range reg.Authorizors {
+	for identifier, authorizor := range res.Authorizors {
 		snapshot[identifier] = authorizor
 	}
 
@@ -57,7 +57,7 @@ func (res *Resource) RemoveAuthroizor(identifier string) (Authorizor, error) {
 	res.lock.Lock()
 	defer res.lock.Unlock()
 
-	ok, authorizor := res.Authorizors[identifier]
+	authorizor, ok := res.Authorizors[identifier]
 	if !ok {
 		return nil, fmt.Errorf("Authorizor \"%v\" not found.", identifier)
 	}
@@ -65,7 +65,7 @@ func (res *Resource) RemoveAuthroizor(identifier string) (Authorizor, error) {
 		return nil, fmt.Errorf("Authorizor \"%v\" denies detaching: %v", err.Error())
 	}
 
-	delete(res.Authorizors[identifier])
+	delete(res.Authorizors, identifier)
 
 	return authorizor, nil
 }

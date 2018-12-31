@@ -3,7 +3,8 @@ package gate
 import (
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/server/gate/api"
-	"github.com/Sunmxt/linker-im/server/resource"
+	//"github.com/Sunmxt/linker-im/server/resource"
+	"fmt"
 	"net/http"
 )
 
@@ -37,7 +38,7 @@ func RegisterResources() error {
 }
 
 func Main() {
-    fmt.Println("Protocol exporter of Linker IM.")
+	fmt.Println("Protocol exporter of Linker IM.")
 	config, err := configureParse()
 	if config == nil {
 		log.Fatalf("%v", err.Error())

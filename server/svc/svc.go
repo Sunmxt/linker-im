@@ -28,7 +28,7 @@ func ServeRPC() error {
 	var err error
 
 	rpcServer := rpc.NewServer()
-	rpcRuntime := svcRPC.ServiceRPCRuntime{
+	rpcRuntime := svcRPC.ServiceRPC{
 		NodeID: svcRPC.NewNodeID(),
 	}
 	log.Infof0("Node ID: %v", rpcRuntime.NodeID.String())
@@ -61,7 +61,7 @@ func ServeRPC() error {
 }
 
 func Main() {
-    fmt.Println("Service node of Linker IM.")
+	fmt.Println("Service node of Linker IM.")
 	opt, err := configureParse()
 	if opt == nil {
 		log.Fatalf("%v", err.Error())

@@ -5,20 +5,20 @@ import (
 	"sync"
 )
 
-// Global Resource Regsitry.
+// Global Resource Registry.
 // All resources are managed by Resource Registry.
 var Registry *ResourceRegistry
 
 // Resource Registry manages resources and provides authorization methods.
 type ResourceRegistry struct {
 	lock      sync.RWMutex
-	Resources map[string]*Resources // Map resource identifier to resource
+	Resources map[string]*Resource // Map resource identifier to resource
 }
 
 // New a resource registry instance.
 func NewResourceRegistry() *ResourceRegistry {
 	return &ResourceRegistry{
-		Resources: make[string] * Resources,
+		Resources: make(map[string]*Resource),
 	}
 }
 
@@ -28,7 +28,7 @@ func (reg *ResourceRegistry) Register(res *Resource) error {
 	defer reg.lock.Unlock()
 
 	// If resource exists
-	if ok, _ := reg.Resources[res.Identifier]; ok {
+	if _, ok := reg.Resources[res.Identifier]; ok {
 		return fmt.Errorf("Failed to register resource: identifier \"%v\" already exists.", res.Identifier)
 	}
 
@@ -41,17 +41,17 @@ func (reg *ResourceRegistry) Unregister(identifier string) (*Resource, error) {
 	reg.lock.Lock()
 	defer reg.lock.Unlock()
 
-	ok, resource := reg.Resources[identifier]
+	resource, ok := reg.Resources[identifier]
 	if !ok {
 		return nil, fmt.Errorf("Resources \"%v\" not found", identifier)
 	}
-	delete(reg.Resources[identifier])
+	delete(reg.Resources, identifier)
 
 	return resource, nil
 }
 
 // List resource
-func (reg *ResourceRegistry) Resources() map[string]*Resources {
+func (reg *ResourceRegistry) ListResources() map[string]*Resource {
 	reg.lock.RLock()
 	defer reg.lock.RUnlock()
 
@@ -65,7 +65,7 @@ func (reg *ResourceRegistry) Resources() map[string]*Resources {
 
 // Get resource according to identifier without consult authorizors.
 func (reg *ResourceRegistry) Access(identifier string) (*Resource, error) {
-	ok, resource := reg.Resources[identifier]
+	resource, ok := reg.Resources[identifier]
 
 	// resource not found.
 	if !ok {
@@ -76,15 +76,15 @@ func (reg *ResourceRegistry) Access(identifier string) (*Resource, error) {
 }
 
 // Try to get access to resource according to identifier and credentials.
-func (reg *Resource) AuthAccess(identifier string, credentials map[string]string) (*Resource, error) {
+func (reg *ResourceRegistry) AuthAccess(identifier string, credentials map[string]string, args ...interface{}) (*Resource, error) {
 	resource, err := reg.Access(identifier)
 	if err != nil {
-		return nul, err
+		return nil, err
 	}
 
 	// Call all authorizors
-	for identifier, authorizor := range resource.Authorizors {
-		if err = authorizor.Auth(resource, credentials); err != nil {
+	for _, authorizor := range resource.Authorizors {
+		if err = authorizor.Auth(resource, credentials, args...); err != nil {
 			return nil, fmt.Errorf("Access denied to the resource \"%v\": %v", resource.Identifier, err.Error())
 		}
 	}
