@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Constants
@@ -13,6 +14,21 @@ type Bucket interface {
 	Hash() uint32
 	ResetHash()
 	Rehash()
+	OrderLess(Bucket) bool
+}
+
+type BucketSlice []Bucket
+
+func (bs BucketSlice) Less(i, j int) bool {
+	return bs[i].OrderLess(bs[j])
+}
+
+func (bs BucketSlice) Len() int {
+	return len(bs)
+}
+
+func (bs BucketSlice) Swap(i, j int) {
+	bs[i], bs[j] = bs[j], bs[i]
 }
 
 type Hashable interface {
@@ -54,8 +70,15 @@ func (r *HashRing) At(index int) Bucket {
 	if index >= len(r.ring) {
 		return nil
 	}
-
 	return r.ring[index]
+}
+
+func (r *HashRing) String() string {
+	hashValueString := make([]string, 0, len(r.ring))
+	for _, bucket := range r.ring {
+		hashValueString = append(hashValueString, fmt.Sprintf("%v", bucket.Hash()))
+	}
+	return "{" + strings.Join(hashValueString, ", ") + "}"
 }
 
 func (r *HashRing) Append(bucket Bucket) (int, Bucket) {
@@ -64,6 +87,9 @@ func (r *HashRing) Append(bucket Bucket) (int, Bucket) {
 	for {
 		idx, _ := r.FromHash(hash)
 		if idx != -1 {
+			if bucket.OrderLess(r.ring[idx]) {
+				bucket, r.ring[idx] = r.ring[idx], bucket
+			}
 			bucket.Rehash()
 			hash = bucket.Hash()
 		}
@@ -121,22 +147,27 @@ func (r *HashRing) FromHash(hash uint32) (int, Bucket) {
 	return idx, bucket
 }
 
+// Ensure hashes not collided and ring sorted.
 func (r *HashRing) uniquify(buckets []Bucket) bool {
-	hashes := make(map[uint32]Bucket, len(buckets))
-	rehash := false
-
-	// Reverse iteration to keep the result same as appending bucket with Append() sequentially.
-	for i := len(buckets); i > 0; {
-		hash := buckets[i-1].Hash()
-		if _, exists := hashes[hash]; exists {
-			buckets[i-1].Rehash()
-			rehash = true
-			continue
+	sortTimes := 0
+	for duplicated, ringLen := true, len(r.ring); duplicated; sortTimes++ {
+		duplicated = false
+		sort.Stable(r)
+		for sb := 1; sb < ringLen; sb++ {
+			se, hash := sb, r.ring[sb-1].Hash()
+			for ; se < ringLen && r.ring[se].Hash() == hash; se++ {
+			}
+			if se > sb { // hash values duplicated. se - (sb - 1) > 1
+				duplicated = true
+				sort.Stable(BucketSlice(r.ring[sb-1 : se]))
+				// Re-hash to avoid collision.
+				for sb < se {
+					r.ring[sb].Rehash()
+				}
+			}
 		}
-		hashes[hash] = buckets[i-1]
-		i--
 	}
-	return rehash
+	return sortTimes > 1
 }
 
 func (r *HashRing) Substitute(buckets []Bucket) {
@@ -147,7 +178,6 @@ func (r *HashRing) Substitute(buckets []Bucket) {
 		bucket.ResetHash()
 	}
 	r.uniquify(r.ring)
-	sort.Stable(r)
 }
 
 func (r *HashRing) Remove(index int) (Bucket, Bucket) {
@@ -163,12 +193,13 @@ func (r *HashRing) Remove(index int) (Bucket, Bucket) {
 	if len(r.ring) == 0 {
 		return removed, nil
 	}
+	if index >= len(r.ring) {
+		index = 0
+	}
 	return removed, r.ring[index]
 }
 
 func (r *HashRing) RemoveHash(hash uint32) (Bucket, Bucket) {
-	fmt.Println(r)
 	idx, _ := r.FromHash(hash)
-	fmt.Println(idx)
 	return r.Remove(idx)
 }

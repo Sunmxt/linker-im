@@ -9,7 +9,9 @@ import (
 	svcRPC "github.com/Sunmxt/linker-im/server/svc/rpc"
 	"github.com/Sunmxt/linker-im/utils/cmdline"
 	"hash/fnv"
+	"net"
 	"net/rpc"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,6 +71,10 @@ func (ep *ServiceEndpoint) Hash() uint32 {
 	return ep.hash
 }
 
+func (ep *ServiceEndpoint) OrderLess(bucket server.Bucket) bool {
+	return strings.Compare(ep.Name, bucket.(*ServiceEndpoint).Name) < 0
+}
+
 func (ep *ServiceEndpoint) disable(set *ServiceEndpointSet) {
 	set.lock.Lock()
 	defer set.lock.Unlock()
@@ -89,9 +95,9 @@ func (ep *ServiceEndpoint) enable(set *ServiceEndpointSet) {
 	log.Infof0("Enable active service endpoint \"%v\" (Hash = %v).", ep.Name, ep.Hash())
 }
 
-func (ep *ServiceEndpoint) changeID(nodeID *svcRPC.NodeID, set *ServiceEndpointSet) {
+func (ep *ServiceEndpoint) changeID(nodeID *svcRPC.NodeID, set *ServiceEndpointSet) bool {
 	if bytes.Equal(nodeID[:], ep.NodeID[:]) {
-		return
+		return false
 	}
 
 	set.lock.Lock()
@@ -106,6 +112,7 @@ func (ep *ServiceEndpoint) changeID(nodeID *svcRPC.NodeID, set *ServiceEndpointS
 	set.FromID[nodeID.AsKey()] = ep
 	ep.NodeID.Assign(nodeID)
 	ep.ResetHash()
+	return true
 }
 
 func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
@@ -120,10 +127,11 @@ func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
 		failureTimes := 0
 
 		for ep.keepaliveRunning > 0 {
+			log.Debugf("HashRing:%v", set.ring)
 			if ep.rpcClient == nil {
 				ep.rpcClient, err = rpc.DialHTTPPath(ep.Network, ep.Address, ep.RPCPath)
 				if err != nil {
-					log.Infof0("Failed to connect service endpoint %v (%v).", ep.Name, err.Error())
+					log.Infof0("Failed to connect service endpoint \"%v\" (%v).", ep.Name, err.Error())
 					ep.rpcClient = nil
 				} else {
 					continue
@@ -136,7 +144,8 @@ func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
 				if err != nil {
 					failureTimes += 1
 					log.Infof0("[%v ms] Keepalive failure %v with service endpoint \"%v\". (%v)", cost, failureTimes, ep.Name, err.Error())
-					if failureTimes > 1 {
+					netErr, isNetErr := err.(net.Error)
+					if failureTimes > 2 || (isNetErr && !netErr.Timeout()) || err == rpc.ErrShutdown {
 						ep.disable(set)
 
 						log.Infof0("Service endpoint \"%v\" may fail. Fallback to dial.", ep.Name)
@@ -147,7 +156,10 @@ func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
 				} else {
 					log.Infof2("[%v ms] Keepalive succeed with service endpoint \"%v\".", cost, ep.Name)
 					failureTimes = 0
-					ep.changeID(&info.NodeID, set)
+					if ep.changeID(&info.NodeID, set) {
+						// Re-append bucket to ensure Hash Rings are all the same among gateways.
+						ep.disable(set)
+					}
 					if ep.Disabled == true {
 						ep.enable(set)
 					}

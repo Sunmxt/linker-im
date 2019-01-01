@@ -132,6 +132,18 @@ func Panic(args ...interface{}) {
     }).Panic(args...)
 }
 
+func Debugf(format string, args ...interface{}) {
+    logrus.WithFields(logrus.Fields{
+        "src": sourceInfo(),
+    }).Debugf(format, args...)
+}
+
+func Tracef(format string, args ...interface{}) {
+    logrus.WithFields(logrus.Fields{
+        "src": sourceInfo(),
+    }).Tracef(format, args...)
+}
+
 func Warnf(format string, args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
