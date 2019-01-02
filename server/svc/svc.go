@@ -3,7 +3,8 @@ package svc
 import (
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
-	svcRPC "github.com/Sunmxt/linker-im/server/svc/rpc"
+	"github.com/Sunmxt/linker-im/proto"
+	"github.com/Sunmxt/linker-im/server"
 	"io"
 	"net/http"
 	"net/rpc"
@@ -28,8 +29,8 @@ func ServeRPC() error {
 	var err error
 
 	rpcServer := rpc.NewServer()
-	rpcRuntime := svcRPC.ServiceRPC{
-		NodeID: svcRPC.NewNodeID(),
+	rpcRuntime := ServiceRPC{
+		NodeID: server.NewNodeID(),
 	}
 	log.Infof0("Node ID: %v", rpcRuntime.NodeID.String())
 
@@ -43,7 +44,7 @@ func ServeRPC() error {
 	mux.Handle("/healthz", log.TagLogHandler(healthCheckMux, map[string]interface{}{
 		"entity": "health-check",
 	}))
-	mux.Handle(svcRPC.RPC_PATH, rpcServer)
+	mux.Handle(proto.RPC_PATH, rpcServer)
 
 	// Serve RPC
 	switch Config.Endpoint.Scheme {
@@ -52,7 +53,6 @@ func ServeRPC() error {
 			Addr:    Config.Endpoint.AuthorityString(),
 			Handler: mux,
 		}
-		//rpcServer.HandleHTTP(svcRPC.RPC_PATH, svcRPC.RPC_DEBUG_PATH)
 		log.Infof0("RPC Serve at %v", Config.Endpoint.String())
 		err = httpServer.ListenAndServe()
 	default:

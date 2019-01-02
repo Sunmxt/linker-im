@@ -12,4 +12,5 @@ type GatewayConfigure struct {
 	ManageEndpoint        string `manage-endpoint,omitempty`
 	RedisEndpoint         string `redis-endpoint,omitempty`
 	ServiceEndpoints      string `service-endpoints,omitempty`
+	KeepalivePeriod       uint   `keepalive-period,omitempty`
 }

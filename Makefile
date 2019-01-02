@@ -11,10 +11,10 @@ format:
 	go fmt github.com/Sunmxt/linker-im/server/...
 
 bin/linker-gate: build-path
-	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/main/linker-gate
+	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/linker-gate
 
 bin/linker-svc: build-path
-	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/main/linker-svc
+	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/linker-svc
 
 delve-dbg-gate:
 	@echo Not implemented.

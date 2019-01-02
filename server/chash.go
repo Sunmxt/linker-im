@@ -92,6 +92,7 @@ func (r *HashRing) Append(bucket Bucket) (int, Bucket) {
 			}
 			bucket.Rehash()
 			hash = bucket.Hash()
+			continue
 		}
 		break
 	}

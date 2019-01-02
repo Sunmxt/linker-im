@@ -3,8 +3,8 @@ package gate
 import (
 	"flag"
 	"fmt"
+	config "github.com/Sunmxt/linker-im/config"
 	"github.com/Sunmxt/linker-im/log"
-	config "github.com/Sunmxt/linker-im/server/gate/config"
 	"github.com/Sunmxt/linker-im/utils/cmdline"
 	yaml "gopkg.in/yaml.v2"
 	"io/ioutil"
@@ -18,6 +18,7 @@ type GatewayOptions struct {
 	APIEndpoint      *cmdline.NetEndpointValue
 	RedisEndpoint    *cmdline.NetEndpointValue
 	ServiceEndpoints *cmdline.NetEndpointSetValue
+	KeepalivePeriod  *cmdline.UintValue
 }
 
 func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfigure) error {
@@ -63,6 +64,9 @@ func (options *GatewayOptions) SetDefault() error {
 	if options.RedisEndpoint.Port == 0 || options.RedisEndpoint.Port > 0xFFFF {
 		return fmt.Errorf("Redis endpoint port should not be %v. (See \"-redis-endpoint\")", options.RedisEndpoint.Port)
 	}
+	if options.KeepalivePeriod.Value == 0 {
+		return fmt.Errorf("Keepalive period should not be %v. (See \"-keepalive-period\")", options.RedisEndpoint.Port)
+	}
 	if options.RedisEndpoint.Scheme == "" {
 		options.RedisEndpoint.Scheme = "tcp"
 	}
@@ -94,6 +98,7 @@ func configureParse() (*GatewayOptions, error) {
 	options := &GatewayOptions{
 		ExternalConfig:   cmdline.NewStringValue(),
 		LogLevel:         cmdline.NewUintValueDefault(0),
+		KeepalivePeriod:  cmdline.NewUintValueDefault(10),
 		PublicManagement: cmdline.NewBoolValueDefault(false),
 		ManageEndpoint:   manage_endpoint,
 		APIEndpoint:      api_endpoint,
@@ -108,6 +113,7 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.ManageEndpoint, "manage-endpoint", "Manage API Endpoint.")
 	flag.Var(options.RedisEndpoint, "redis-endpoint", "Redis cache endpoint.")
 	flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
+	flag.Var(options.KeepalivePeriod, "keepalive-period", "Keepalive period. Can not be 0.")
 
 	flag.Parse()
 
@@ -121,6 +127,7 @@ func configureParse() (*GatewayOptions, error) {
 			ManageEndpoint:        "",
 			RedisEndpoint:         "",
 			ServiceEndpoints:      "",
+			KeepalivePeriod:       10,
 		}
 
 		log.Info0("External configure: %v", options.ExternalConfig.Value)

@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
+	"github.com/Sunmxt/linker-im/proto"
 	"github.com/Sunmxt/linker-im/server"
-	svcRPC "github.com/Sunmxt/linker-im/server/svc/rpc"
 	"github.com/Sunmxt/linker-im/utils/cmdline"
 	"hash/fnv"
 	"net"
@@ -19,13 +19,12 @@ import (
 
 // ServiceEndpoint is server implementing Logics.
 type ServiceEndpoint struct {
-	Name            string
-	Network         string
-	Address         string
-	RPCPath         string
-	Disabled        bool
-	KeepalivePeriod uint32
-	svcRPC.NodeID
+	Name     string
+	Network  string
+	Address  string
+	RPCPath  string
+	Disabled bool
+	server.NodeID
 
 	rpcClient *rpc.Client
 
@@ -47,7 +46,6 @@ func NewServiceEndpoint(name, network, address, rpcPath string) (*ServiceEndpoin
 		Network:          network,
 		Address:          address,
 		RPCPath:          rpcPath,
-		KeepalivePeriod:  10,
 	}
 	instance.ResetHash()
 	return instance, nil
@@ -95,7 +93,7 @@ func (ep *ServiceEndpoint) enable(set *ServiceEndpointSet) {
 	log.Infof0("Enable active service endpoint \"%v\" (Hash = %v).", ep.Name, ep.Hash())
 }
 
-func (ep *ServiceEndpoint) changeID(nodeID *svcRPC.NodeID, set *ServiceEndpointSet) bool {
+func (ep *ServiceEndpoint) changeID(nodeID *server.NodeID, set *ServiceEndpointSet) bool {
 	if bytes.Equal(nodeID[:], ep.NodeID[:]) {
 		return false
 	}
@@ -103,7 +101,7 @@ func (ep *ServiceEndpoint) changeID(nodeID *svcRPC.NodeID, set *ServiceEndpointS
 	set.lock.Lock()
 	defer set.lock.Unlock()
 
-	if !bytes.Equal(ep.NodeID[:], svcRPC.EMPTY_NODE_ID) {
+	if !bytes.Equal(ep.NodeID[:], server.EMPTY_NODE_ID) {
 		delete(set.FromID, ep.NodeID.AsKey())
 		log.Infof0("Service endpoint \"%v\" ID Changed: %v -> %v", ep.Name, ep.NodeID.String(), nodeID.String())
 	} else {
@@ -165,7 +163,7 @@ func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
 					}
 				}
 			}
-			<-time.After(time.Duration(ep.KeepalivePeriod) * time.Second)
+			<-time.After(time.Duration(set.KeepalivePeriod) * time.Second)
 		}
 
 		ep.keepaliveRunning = 0
@@ -181,10 +179,10 @@ func (ep *ServiceEndpoint) StopKeepalive() error {
 }
 
 // RPC Methods
-func (ep *ServiceEndpoint) Keepalive(gateID svcRPC.NodeID) (error, *svcRPC.KeepaliveServiceInformation) {
-	reply := &svcRPC.KeepaliveServiceInformation{}
+func (ep *ServiceEndpoint) Keepalive(gateID server.NodeID) (error, *proto.KeepaliveServiceInformation) {
+	reply := &proto.KeepaliveServiceInformation{}
 
-	err := ep.rpcClient.Call("ServiceRPC.Keepalive", &svcRPC.KeepaliveGatewayInformation{
+	err := ep.rpcClient.Call("ServiceRPC.Keepalive", &proto.KeepaliveGatewayInformation{
 		NodeID: gateID,
 	}, reply)
 	if err != nil {
@@ -198,9 +196,10 @@ func (ep *ServiceEndpoint) Keepalive(gateID svcRPC.NodeID) (error, *svcRPC.Keepa
 type ServiceEndpointSet struct {
 	lock sync.RWMutex
 
-	FromID   map[string]*ServiceEndpoint
-	FromName map[string]*ServiceEndpoint
-	GateID   svcRPC.NodeID
+	FromID          map[string]*ServiceEndpoint
+	FromName        map[string]*ServiceEndpoint
+	GateID          server.NodeID
+	KeepalivePeriod uint
 
 	ring             *server.HashRing
 	keepaliveRunning uint32
@@ -220,7 +219,7 @@ func NewServiceEndpointSetFromFlag(flagValue *cmdline.NetEndpointSetValue) *Serv
 	instance := NewServiceEndpointSet()
 	// Create all endpoints.
 	for name, opt := range flagValue.Endpoints {
-		instance.FromName[name], err = NewServiceEndpoint(name, opt.Scheme, opt.AuthorityString(), svcRPC.RPC_PATH)
+		instance.FromName[name], err = NewServiceEndpoint(name, opt.Scheme, opt.AuthorityString(), proto.RPC_PATH)
 		if err != nil {
 			log.Errorf("Cannot create ServiceEndpoint: %v", name)
 		}
@@ -269,10 +268,12 @@ func (set *ServiceEndpointSet) RemoveEndpoint(name string) (*ServiceEndpoint, er
 	return endpoint, err
 }
 
-func (set *ServiceEndpointSet) GoKeepalive() error {
+func (set *ServiceEndpointSet) GoKeepalive(nodeID server.NodeID, period uint) error {
 	if !atomic.CompareAndSwapUint32(&set.keepaliveRunning, 0, 1) {
 		return nil
 	}
+
+	set.GateID, set.KeepalivePeriod = nodeID, period
 	set.lock.RLock()
 	defer set.lock.RUnlock()
 

@@ -1,28 +1,15 @@
 package gate
 
 import (
-	"github.com/Sunmxt/linker-im/log"
-	"github.com/Sunmxt/linker-im/server/gate/api"
-	svcRPC "github.com/Sunmxt/linker-im/server/svc/rpc"
-	//"github.com/Sunmxt/linker-im/server/resource"
 	"fmt"
+	"github.com/Sunmxt/linker-im/log"
+	"github.com/Sunmxt/linker-im/server"
+	"github.com/Sunmxt/linker-im/server/resource"
 	"net/http"
 )
 
 var Config *GatewayOptions
-var NodeID svcRPC.NodeID
-
-var Handler *http.ServeMux
-
-func registerAPIEndpoints(mux *http.ServeMux) {
-	mux.HandleFunc("/healthz", api.Health)
-}
-
-func init() {
-	Handler = http.NewServeMux()
-
-	registerAPIEndpoints(Handler)
-}
+var NodeID server.NodeID
 
 func LogConfigure() {
 	log.Infof0("-config=%v", Config.ExternalConfig.String())
@@ -32,12 +19,16 @@ func LogConfigure() {
 	log.Infof0("-enable-public-management=%v", Config.PublicManagement.String())
 	log.Infof0("-redis-endpoint=%v", Config.RedisEndpoint.String())
 	log.Infof0("-services-endpoint=\"%v\"", Config.ServiceEndpoints.String())
+	log.Infof0("-keepalive-period=%v", Config.KeepalivePeriod.String())
 }
 
 func RegisterResources() error {
 	svcEndpointSet := NewServiceEndpointSetFromFlag(Config.ServiceEndpoints)
-	svcEndpointSet.GateID = NodeID
-	svcEndpointSet.GoKeepalive()
+	log.Infof0("Register resource \"svc-endpoint\".")
+	if err := resource.Registry.Register("svc-endpoint", svcEndpointSet); err != nil {
+		return err
+	}
+	svcEndpointSet.GoKeepalive(NodeID, Config.KeepalivePeriod.Value)
 	return nil
 }
 
@@ -55,17 +46,19 @@ func Main() {
 	LogConfigure()
 
 	// Log level
-	log.Infof0("Log Level is %v.", Config.LogLevel.Value)
+	log.Infof0("Log Level set to %v.", Config.LogLevel.Value)
 	log.SetGlobalLogLevel(Config.LogLevel.Value)
 
-	NodeID = svcRPC.NewNodeID()
+	NodeID = server.NewNodeID()
 	log.Infof0("Gateway Node ID is %v.", NodeID.String())
 
 	// Serve IM API
-	log.Infof0("IM API Serve at %v.", config.APIEndpoint.String())
+	var httpMux *http.ServeMux
+	httpMux, err = NewHTTPAPIMux()
+	log.Infof0("HTTP API Serve at %v.", config.APIEndpoint.String())
 	api_server := http.Server{
 		Addr: config.APIEndpoint.String(),
-		Handler: log.TagLogHandler(Handler, map[string]interface{}{
+		Handler: log.TagLogHandler(httpMux, map[string]interface{}{
 			"entity": "http-api",
 		}),
 	}
