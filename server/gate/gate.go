@@ -16,7 +16,6 @@ func LogConfigure() {
 	log.Infof0("-log-level=%v", Config.LogLevel.String())
 	log.Infof0("-endpoint=%v", Config.APIEndpoint.String())
 	log.Infof0("-manage-endpoint=%v", Config.ManageEndpoint.String())
-	log.Infof0("-enable-public-management=%v", Config.PublicManagement.String())
 	log.Infof0("-redis-endpoint=%v", Config.RedisEndpoint.String())
 	log.Infof0("-services-endpoint=\"%v\"", Config.ServiceEndpoints.String())
 	log.Infof0("-keepalive-period=%v", Config.KeepalivePeriod.String())
@@ -53,8 +52,7 @@ func Main() {
 	log.Infof0("Gateway Node ID is %v.", NodeID.String())
 
 	// Serve IM API
-	var httpMux *http.ServeMux
-	httpMux, err = NewHTTPAPIMux()
+	httpMux, err := NewHTTPAPIMux()
 	log.Infof0("HTTP API Serve at %v.", config.APIEndpoint.String())
 	api_server := http.Server{
 		Addr: config.APIEndpoint.String(),

@@ -281,6 +281,14 @@ func (logger *Logger) Panic(args ...interface{}) {
     PanicMap(logger.Fields, args...)
 }
 
+func (logger *Logger) Debugf(format string, args ...interface{}) {
+    ErrorMap(logger.Fields, fmt.Sprintf(format, args...))
+}
+
+func (logger *Logger) Errorf(format string, args ...interface{}) {
+    ErrorMap(logger.Fields, fmt.Sprintf(format, args...))
+}
+
 func (logger *Logger) Fatalf(format string, args ...interface{}) {
     FatalMap(logger.Fields, fmt.Sprintf(format, args...))
 }

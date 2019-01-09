@@ -13,39 +13,46 @@ import (
 type GatewayOptions struct {
 	ExternalConfig   *cmdline.StringValue
 	LogLevel         *cmdline.UintValue
-	PublicManagement *cmdline.BoolValue
 	ManageEndpoint   *cmdline.NetEndpointValue
 	APIEndpoint      *cmdline.NetEndpointValue
 	RedisEndpoint    *cmdline.NetEndpointValue
 	ServiceEndpoints *cmdline.NetEndpointSetValue
-	KeepalivePeriod  *cmdline.UintValue
+
+	KeepalivePeriod *cmdline.UintValue
+
+	// Timeslice length to aggregate messages.
+	// All messages received within the period will be grouped and sent in one response.
+	// Timeslice will not be longer then timeout specified by client.
+	MessageAggregateTimeslice *cmdline.UintValue
 }
 
 func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfigure) error {
 	if options.LogLevel.IsDefault {
 		options.LogLevel.Value = cfg.LogLevel
 	}
-
-	if options.PublicManagement.IsDefault {
-		options.PublicManagement.Value = cfg.IMEnableManagementAPI
-	}
-
-	if options.ManageEndpoint.IsDefault && cfg.ManageEndpoint != "" {
-		if err := options.ManageEndpoint.Set(cfg.ManageEndpoint); err != nil {
+	if options.ManageEndpoint.IsDefault && cfg.Manage.Endpoint != "" {
+		if err := options.ManageEndpoint.Set(cfg.Manage.Endpoint); err != nil {
 			return err
 		}
 	}
 
-	if options.APIEndpoint.IsDefault && cfg.IMAPIEndpoint != "" {
-		if err := options.APIEndpoint.Set(cfg.IMAPIEndpoint); err != nil {
+	if options.APIEndpoint.IsDefault && cfg.HTTPConfig.Endpoint != "" {
+		if err := options.APIEndpoint.Set(cfg.HTTPConfig.Endpoint); err != nil {
 			return err
 		}
 	}
-
-	if options.ServiceEndpoints.IsDefault && cfg.ServiceEndpoints != "" {
-		if err := options.ServiceEndpoints.Set(cfg.ServiceEndpoints); err != nil {
-			return err
+	if options.ServiceEndpoints.IsDefault && cfg.SVCConfig.Endpoints != nil && len(cfg.SVCConfig.Endpoints) > 0 {
+		options.ServiceEndpoints.IsDefault = false
+		for k, v := range cfg.SVCConfig.Endpoints {
+			ep, err := cmdline.NewNetEndpointValueDefault(options.ServiceEndpoints.ValidSchemes, v)
+			if err != nil {
+				return err
+			}
+			options.ServiceEndpoints.Endpoints[k] = ep
 		}
+	}
+	if options.KeepalivePeriod.IsDefault {
+		options.KeepalivePeriod.Value = cfg.SVCConfig.KeepalivePeriod
 	}
 
 	return nil
@@ -96,19 +103,18 @@ func configureParse() (*GatewayOptions, error) {
 	}
 
 	options := &GatewayOptions{
-		ExternalConfig:   cmdline.NewStringValue(),
-		LogLevel:         cmdline.NewUintValueDefault(0),
-		KeepalivePeriod:  cmdline.NewUintValueDefault(10),
-		PublicManagement: cmdline.NewBoolValueDefault(false),
-		ManageEndpoint:   manage_endpoint,
-		APIEndpoint:      api_endpoint,
-		RedisEndpoint:    redis_endpoint,
-		ServiceEndpoints: serviceEndpoints,
+		ExternalConfig:            cmdline.NewStringValue(),
+		LogLevel:                  cmdline.NewUintValueDefault(0),
+		KeepalivePeriod:           cmdline.NewUintValueDefault(10),
+		ManageEndpoint:            manage_endpoint,
+		APIEndpoint:               api_endpoint,
+		RedisEndpoint:             redis_endpoint,
+		ServiceEndpoints:          serviceEndpoints,
+		MessageAggregateTimeslice: cmdline.NewUintValueDefault(50),
 	}
 
 	flag.Var(options.ExternalConfig, "config", "Configure YAML.")
 	flag.Var(options.LogLevel, "log-level", "Log level.")
-	flag.Var(options.PublicManagement, "enable-public-management", "Enable management API on public endpoint.")
 	flag.Var(options.APIEndpoint, "endpoint", "Public API binding Endpoint.")
 	flag.Var(options.ManageEndpoint, "manage-endpoint", "Manage API Endpoint.")
 	flag.Var(options.RedisEndpoint, "redis-endpoint", "Redis cache endpoint.")
@@ -121,13 +127,16 @@ func configureParse() (*GatewayOptions, error) {
 	if options.ExternalConfig.Value != "" {
 		var config_content []byte
 		external_config := &config.GatewayConfigure{
-			LogLevel:              0,
-			IMAPIEndpoint:         "",
-			IMEnableManagementAPI: false,
-			ManageEndpoint:        "",
-			RedisEndpoint:         "",
-			ServiceEndpoints:      "",
-			KeepalivePeriod:       10,
+			LogLevel:                  0,
+			MessageAggregateTimeslice: 50,
+			RedisEndpoint:             "",
+			SVCConfig: config.ServiceConnectionConfigure{
+				Endpoints:       make(map[string]string),
+				KeepalivePeriod: 10,
+			},
+			HTTPConfig: config.HTTPAPIConfigure{
+				Endpoint: "0.0.0.0:12360",
+			},
 		}
 
 		log.Info0("External configure: %v", options.ExternalConfig.Value)
