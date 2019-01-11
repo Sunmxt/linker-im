@@ -17,8 +17,10 @@ func LogConfigure() {
 	log.Infof0("-endpoint=%v", Config.APIEndpoint.String())
 	log.Infof0("-manage-endpoint=%v", Config.ManageEndpoint.String())
 	log.Infof0("-redis-endpoint=%v", Config.RedisEndpoint.String())
+	log.Infof0("-redis-prefix=%v", Config.RedisPrefix.String())
 	log.Infof0("-services-endpoint=\"%v\"", Config.ServiceEndpoints.String())
 	log.Infof0("-keepalive-period=%v", Config.KeepalivePeriod.String())
+    log.Infof0("-debug=%v", Config.DebugMode.String())
 }
 
 func RegisterResources() error {

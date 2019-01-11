@@ -23,6 +23,9 @@ type GatewayConfigure struct {
     MessageAggregateTimeslice uint `aggregate-timeslice,omitempty`
 
 	RedisEndpoint           string `redis-endpoint,omitempty`
+    RedisPrefix             string `redis-prefix,omitempty`
+
+    Debug                   bool `debug,omitempty`
 
     SVCConfig             ServiceConnectionConfigure    `service,omitempty`
     HTTPConfig            HTTPAPIConfigure              `http,omitempty`

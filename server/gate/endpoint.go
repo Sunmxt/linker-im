@@ -8,6 +8,7 @@ import (
 	"github.com/Sunmxt/linker-im/proto"
 	"github.com/Sunmxt/linker-im/server"
 	"github.com/Sunmxt/linker-im/utils/cmdline"
+	"github.com/Sunmxt/linker-im/utils/pool"
 	"hash/fnv"
 	"net"
 	"net/rpc"
@@ -17,7 +18,6 @@ import (
 	"time"
 )
 
-// ServiceEndpoint is server implementing Logics.
 type ServiceEndpoint struct {
 	Name     string
 	Network  string
@@ -26,7 +26,7 @@ type ServiceEndpoint struct {
 	Disabled bool
 	server.NodeID
 
-	rpcClient *rpc.Client
+    clients *pool.Pool
 
 	hash             uint32
 	keepaliveRunning uint32
@@ -34,14 +34,14 @@ type ServiceEndpoint struct {
 	start            chan error
 }
 
-func NewServiceEndpoint(name, network, address, rpcPath string) (*ServiceEndpoint, error) {
+func NewServiceEndpoint(name, network, address, rpcPath string, maxConcurrentRequest, maxConnection int) (*ServiceEndpoint, error) {
 	instance := &ServiceEndpoint{
 		hash:             0,
 		Disabled:         true,
 		keepaliveRunning: 0,
 		stop:             make(chan error),
 		start:            make(chan error),
-		rpcClient:        nil,
+        maxConn:          maxConnection,
 		Name:             name,
 		Network:          network,
 		Address:          address,
@@ -49,6 +49,38 @@ func NewServiceEndpoint(name, network, address, rpcPath string) (*ServiceEndpoin
 	}
 	instance.ResetHash()
 	return instance, nil
+}
+
+func (ep *ServiceEndpoint) New() (interface{}, error) {
+    client, err = rpc.DialHTTPPath(ep.Network, ep.Address, ep.RPCPath)
+    if err != nil {
+	    log.Infof0("Failed to connect service endpoint \"%v\" (%v).", ep.Name, err.Error())
+        return nil, err
+    }
+    return client, nil
+}
+
+func (ep *ServiceEndpoint) Destroy(x interface{}) {
+}
+
+func (ep *ServiceEndpoint) Healthy(x interface{}, err error) bool {
+}
+
+func (ep *ServiceEndpoint) Notify(ctx *pool.NotifyContext) {
+    switch ctx.Event {
+    case pool.POOL_NEW_DRIP:
+	    log.Infof0("Service RPC client added. [dripCount = %v]", ctx.DripCount)
+    case pool.POOL_DESTROY_DRIP:
+	    log.Infof0("Service RPC client destroy. [dripCount = %v]", ctx.DripCount)
+    case pool.POOL_REMOVE_DRIP:
+	    log.Infof0("Service RPC client removed. [dripCount = %v]", ctx.DripCount)
+        // do endpoint fallback here.
+    case pool.POOL_NEW_DRIP_FAILURE:
+	    log.Infof0("Failed to add Service RPC client. (%v) [dripCount = %v]", ctx.Error.Error(), ctx.DripCount)
+    }
+
+    log.DebugLazy(func () string { return ctx.String() })
+    log.TraceLazy(func () string { return ctx.String() })
 }
 
 func (ep *ServiceEndpoint) Rehash() {
@@ -63,6 +95,12 @@ func (ep *ServiceEndpoint) ResetHash() {
 	fnvHash := fnv.New32a()
 	fnvHash.Write([]byte(ep.NodeID[:]))
 	ep.hash = fnvHash.Sum32()
+}
+
+func (ep *ServiceEndpoint) Get() *ServiceRPCClient {
+}
+
+func (ep *ServiceRPCClient) Free(client *ServiceRPCClient) {
 }
 
 func (ep *ServiceEndpoint) Hash() uint32 {

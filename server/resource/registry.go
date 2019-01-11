@@ -5,6 +5,19 @@ import (
 	"sync"
 )
 
+// Errors
+type ResourceAuthError struct {
+	Origin error
+}
+
+func NewResourceAuthError(err error) *ResourceAuthError {
+	return &ResourceAuthError{Origin: err}
+}
+
+func (err ResourceAuthError) Error() string {
+	return err.Origin.Error()
+}
+
 // Global Resource Registry.
 // All resources are managed by Resource Registry.
 var Registry *ResourceRegistry
@@ -91,8 +104,13 @@ func (reg *ResourceRegistry) AuthAccess(identifier string, credentials map[strin
 	}
 
 	// Call authorizor
-	if err = resource.Authorizor.Auth(resource, credentials, args...); err != nil {
-		return nil, err
+	if resource.Authorizor != nil {
+		if credentials == nil {
+			credentials = make(map[string]string)
+		}
+		if err = resource.Authorizor.Auth(resource, credentials, args...); err != nil {
+			return nil, NewResourceAuthError(err)
+		}
 	}
 
 	return resource.Entity, nil

@@ -7,6 +7,9 @@ import (
 const RPC_PATH = "/__rpc_linker_svc"
 const RPC_DEBUG_PATH = "/__rpc_linker_svc_debug"
 
+// Dummy
+type Dummy struct {}
+
 // Keepalive
 type KeepaliveGatewayInformation struct {
 	server.NodeID
@@ -17,12 +20,23 @@ type KeepaliveServiceInformation struct {
 }
 
 // Push message.
+
 type MessagePushArguments struct {
-	server.Message
-	Namespace string
+	Messages []RawMessage
 }
 
 type MessagePushResult struct {
-	Timestamp  uint64
-	SequenceID uint32
+    Replies []struct {
+        Identifiers MessageIdentifier
+        Code    uint8
+    }
+}
+
+// Namespace
+type NamespaceArguments struct {
+    Names []string
+}
+
+type NamespaceListReply struct {
+    Names []string
 }

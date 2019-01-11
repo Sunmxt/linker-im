@@ -44,16 +44,28 @@ func SetGlobalLogLevel(loglevel uint) {
 }
 
 
+func DebugLazy(export func () string) {
+    if globalLogLevel >= 4 {
+        Debug(export())
+    }
+}
+
+func TraceLazy(export func () string) {
+    if globalLogLevel >= 5 {
+        Trace(export())
+    }
+}
+
 func Trace(args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Trace(args)
+    }).Trace(args...)
 }
 
 func Debug(args ...interface{}) {
     logrus.WithFields(logrus.Fields{
         "src": sourceInfo(),
-    }).Debug(args)
+    }).Debug(args...)
 }
 
 func Info(info_level uint ,args ...interface{}) {
@@ -295,6 +307,18 @@ func (logger *Logger) Fatalf(format string, args ...interface{}) {
 
 func (logger *Logger) Panicf(format string, args ...interface{}) {
     PanicMap(logger.Fields, fmt.Sprintf(format, args...))
+}
+
+func (logger *Logger) DebugLazy(export func () string) {
+    if globalLogLevel >= 4 {
+        logger.Debug(export())
+    }
+}
+
+func (logger *Logger) TraceLazy(export func () string) {
+    if globalLogLevel >= 5 {
+        logger.Trace(export())
+    }
 }
 
 func updateMap(dst map[string]interface{}, src map[string]interface{}) {

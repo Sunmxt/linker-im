@@ -17,7 +17,10 @@ func NewServiceServeMux() (*http.ServeMux, error) {
 	rpcServer := rpc.NewServer()
 	rpcRuntime := ServiceRPC{
 		NodeID: server.NewNodeID(),
+		log:    ilog.NewLogger(),
 	}
+	rpcRuntime.log.Fields["entity"] = "rpc"
+
 	ilog.Infof0("Node ID: %v", rpcRuntime.NodeID.String())
 
 	// Register all RPC ports.

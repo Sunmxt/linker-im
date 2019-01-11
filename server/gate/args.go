@@ -11,19 +11,35 @@ import (
 )
 
 type GatewayOptions struct {
-	ExternalConfig   *cmdline.StringValue
-	LogLevel         *cmdline.UintValue
-	ManageEndpoint   *cmdline.NetEndpointValue
-	APIEndpoint      *cmdline.NetEndpointValue
-	RedisEndpoint    *cmdline.NetEndpointValue
+	ExternalConfig *cmdline.StringValue
+	LogLevel       *cmdline.UintValue
+
+	ManageEndpoint *cmdline.NetEndpointValue
+
+	// Endpoint to bind and serve HTTP API.
+	APIEndpoint *cmdline.NetEndpointValue
+
+	// Redis endpoint.
+	RedisEndpoint *cmdline.NetEndpointValue
+
+	// Redis prefix.
+	RedisPrefix *cmdline.StringValue
+
+	// List of service endpoints.
 	ServiceEndpoints *cmdline.NetEndpointSetValue
 
+	// Period to check state of service endpoint.
+	// Unhealthy endpoints will be disable automatically.
 	KeepalivePeriod *cmdline.UintValue
 
 	// Timeslice length to aggregate messages.
 	// All messages received within the period will be grouped and sent in one response.
 	// Timeslice will not be longer then timeout specified by client.
 	MessageAggregateTimeslice *cmdline.UintValue
+
+	// Debug mode
+	// More information will be reported to clients when debug mode is on.
+	DebugMode *cmdline.BoolValue
 }
 
 func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfigure) error {
@@ -54,7 +70,12 @@ func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfig
 	if options.KeepalivePeriod.IsDefault {
 		options.KeepalivePeriod.Value = cfg.SVCConfig.KeepalivePeriod
 	}
-
+    if options.DebugMode.IsDefault {
+        options.DebugMode.Value = cfg.Debug
+    }
+    if options.RedisPrefix.IsDefault {
+        options.RedisPrefix.Value = cfg.RedisPrefix
+    }
 	return nil
 }
 
@@ -109,8 +130,10 @@ func configureParse() (*GatewayOptions, error) {
 		ManageEndpoint:            manage_endpoint,
 		APIEndpoint:               api_endpoint,
 		RedisEndpoint:             redis_endpoint,
+        RedisPrefix:               cmdline.NewStringValueDefault("linker"),
 		ServiceEndpoints:          serviceEndpoints,
 		MessageAggregateTimeslice: cmdline.NewUintValueDefault(50),
+        DebugMode:                 cmdline.NewBoolValueDefault(false),
 	}
 
 	flag.Var(options.ExternalConfig, "config", "Configure YAML.")
@@ -118,8 +141,10 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.APIEndpoint, "endpoint", "Public API binding Endpoint.")
 	flag.Var(options.ManageEndpoint, "manage-endpoint", "Manage API Endpoint.")
 	flag.Var(options.RedisEndpoint, "redis-endpoint", "Redis cache endpoint.")
+    flag.Var(options.RedisPrefix, "redis-prefix", "Redis cache key prefix.")
 	flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
 	flag.Var(options.KeepalivePeriod, "keepalive-period", "Keepalive period. Can not be 0.")
+    flag.Var(options.DebugMode, "debug", "Enable debug mode.")
 
 	flag.Parse()
 
@@ -130,6 +155,8 @@ func configureParse() (*GatewayOptions, error) {
 			LogLevel:                  0,
 			MessageAggregateTimeslice: 50,
 			RedisEndpoint:             "",
+            RedisPrefix:               "linker",
+            Debug:                     false,
 			SVCConfig: config.ServiceConnectionConfigure{
 				Endpoints:       make(map[string]string),
 				KeepalivePeriod: 10,
