@@ -1,57 +1,57 @@
 package proto
 
 import (
-    guuid "github.com/satori/go.uuid"
-    "fmt"
+	"fmt"
+	guuid "github.com/satori/go.uuid"
 )
 
 const (
-    SUCCEED = 0
-    INVALID_ARGUMENT = 1
+	SUCCEED          = 0
+	INVALID_ARGUMENT = 1
 )
 
 var ErrorMessageFromCode map[uint32]string = map[uint32]string{
-    SUCCEED: "succeed.",
+	SUCCEED: "succeed.",
 }
 
 func ErrorCodeText(code uint32) string {
-    err, ok := ErrorMessageFromCode[code]
-    if !ok {
-        return fmt.Sprintf("unknown error (code = %v)", code)
-    }
-    return err
+	err, ok := ErrorMessageFromCode[code]
+	if !ok {
+		return fmt.Sprintf("unknown error (code = %v)", code)
+	}
+	return err
 }
 
 type HTTPMapResponse struct {
-    APIVersion      uint32              `json:"ver"`
-    Data            map[string]interface{}   `json:"data"`
-    Code            uint32              `json:"code"`
-    ErrorMessage    string              `json:"msg"`
+	APIVersion   uint32                 `json:"ver"`
+	Data         map[string]interface{} `json:"data"`
+	Code         uint32                 `json:"code"`
+	ErrorMessage string                 `json:"msg"`
 }
 
 type HTTPListResponse struct {
-    APIVersion      uint32              `json:"ver"`
-    Data            []interface{}            `json:"data"`
-    Code            uint32              `json:"code"`
-    ErrorMessage    string              `json:"msg"`
+	APIVersion   uint32        `json:"ver"`
+	Data         []interface{} `json:"data"`
+	Code         uint32        `json:"code"`
+	ErrorMessage string        `json:"msg"`
 }
 
 type HTTPListRequest struct {
-    APIVersion      uint32              `json:"ver"`
-    Arguments       []interface{}       `json:"args"`
-    RequestID       guuid.UUID          `json:"-"`
+	APIVersion uint32        `json:"ver"`
+	Arguments  []interface{} `json:"args"`
+	RequestID  guuid.UUID    `json:"-"`
 }
 
 type HTTPMapRequest struct {
-    APIVersion      uint32              `json:"ver"`
-    Arguments       map[string]interface{}       `json:"args"`
-    RequestID       guuid.UUID          `json:"-"`
+	APIVersion uint32                 `json:"ver"`
+	Arguments  map[string]interface{} `json:"args"`
+	RequestID  guuid.UUID             `json:"-"`
 }
 
 func (req *HTTPListRequest) Identifier() string {
-    return req.RequestID.String()
+	return req.RequestID.String()
 }
 
 func (req *HTTPMapRequest) Identifier() string {
-    return req.RequestID.String()
+	return req.RequestID.String()
 }
