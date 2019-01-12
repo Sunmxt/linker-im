@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Drip is item of pool.
@@ -43,7 +44,7 @@ func (d *Drip) Release(err error) {
 		DripCount: len(d.pool.drip),
 		Error:     nil,
 	})
-	d.pool.wakeSleeper(1)
+	d.pool.wakeMany(1)
 
 	if d.index >= 0 {
 		heap.Fix(d.pool, d.index)
@@ -94,6 +95,7 @@ func GetEventDescription(event uint) string {
 
 var ErrFull = errors.New("Pool is full.")
 var ErrClosed = errors.New("Pool is closed.")
+var ErrWaitTimeout = errors.New("Waiting time elapsed.")
 
 type DripInterface interface {
 	// Allocate new drip
@@ -231,18 +233,6 @@ func NewPool(ifce DripInterface, maxDrip, maxUsed int) *Pool {
 	return instance
 }
 
-func (p *Pool) wakeSleeper(sleeper uint32) {
-	for sleeper > 0 && p.waitc > p.wake {
-		wg, ok := p.waiter[p.wake]
-		if ok && wg != nil {
-			wg.Done()
-		}
-		delete(p.waiter, p.wake)
-		sleeper--
-		p.wake++
-	}
-}
-
 // Select a drip accoarding to straregies.
 func (p *Pool) balanceSelect() (int, error) {
 	if len(p.drip) < 1 || (p.maxUsed > 0 && p.drip[0].used >= p.maxUsed) {
@@ -252,16 +242,64 @@ func (p *Pool) balanceSelect() (int, error) {
 }
 
 // Wait for free drip.
-func (p *Pool) wait() {
+func (p *Pool) wait(timeout uint32) error {
+	var err error
+
 	// Register myself
 	waitToken, wg := p.waitc, &sync.WaitGroup{}
+	waitChan := make(chan struct{})
+
 	p.waitc++
 	p.waiter[waitToken] = wg
 	wg.Add(1)
+
 	p.lock.Unlock()
 
+	go func() {
+		wg.Wait()
+		waitChan <- struct{}{}
+	}()
+
 	// Then wait
-	wg.Wait()
+	if timeout > 0 {
+		chanTimeout := time.After(time.Duration(timeout) * time.Millisecond)
+		select {
+		case <-waitChan:
+		case <-chanTimeout:
+			p.lock.Lock()
+			p.wakeTarget(waitToken)
+			p.lock.Unlock()
+			err = ErrWaitTimeout
+		}
+	} else {
+		<-waitChan
+	}
+
+	close(waitChan)
+
+	return err
+}
+
+func (p *Pool) wakeMany(sleeper uint32) uint32 {
+	for sleeper > 0 && p.waitc > p.wake {
+		if p.wakeTarget(p.wake) {
+			sleeper--
+		}
+		p.wake++
+	}
+	return sleeper
+}
+
+func (p *Pool) wakeTarget(waitc uint32) bool {
+	wg, ok := p.waiter[waitc]
+	if !ok || wg == nil {
+		return false
+	}
+
+	wg.Done()
+	delete(p.waiter, p.wake)
+
+	return true
 }
 
 func (p *Pool) newDrip() (interface{}, error) {
@@ -287,7 +325,7 @@ func (p *Pool) newDrip() (interface{}, error) {
 	return raw, err
 }
 
-func (p *Pool) Get(wait bool) (*Drip, error) {
+func (p *Pool) Get(toWait bool, timeout uint32) (*Drip, error) {
 	var drip *Drip
 	var idx int
 	var err error
@@ -306,9 +344,14 @@ func (p *Pool) Get(wait bool) (*Drip, error) {
 		// select a drip
 		idx, err = p.balanceSelect()
 		if idx < 0 {
-			// No free drip. wait.
-			if wait {
-				p.wait()
+			if toWait {
+				// No free drip. wait.
+
+				err = p.wait(timeout)
+				if err != nil {
+					// Timeout
+					return nil, err
+				}
 				continue
 			}
 		} else {
@@ -361,7 +404,7 @@ closeDrip:
 		}
 
 		// wait until new drip released.
-		p.wait()
+		p.wait(0)
 		p.lock.Lock()
 	}
 	p.lock.Unlock()

@@ -85,7 +85,7 @@ func (ep *ServiceEndpoint) bootstrap() {
 	log.Infof0("Bootstraping connection of endpoint \"%v\"", ep.Name)
 
 	for {
-		drip, err := ep.clients.Get(false)
+		drip, err := ep.clients.Get(false, 0)
 		if err == nil && drip != nil {
 			drip.Release(nil)
 			break
@@ -284,6 +284,8 @@ type ServiceEndpointSet struct {
 
 	ring             *server.HashRing
 	keepaliveRunning uint32
+
+	round uint32
 }
 
 func NewServiceEndpointSet() *ServiceEndpointSet {
@@ -389,3 +391,11 @@ func (set *ServiceEndpointSet) StopKeepalive() {
 
 	atomic.SwapUint32(&set.keepaliveRunning, 0)
 }
+
+//func (set *ServiceEndpointSet) Get(wait bool) (*rpc.Client, error) {
+//	return nil, nil
+//}
+//
+//func (set *ServiceEndpointSet) HashGet(wait bool) (*rpc.Client, error) {
+//	return nil, nil
+//}
