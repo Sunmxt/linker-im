@@ -48,10 +48,10 @@ type HTTPMapRequest struct {
     RequestID       guuid.UUID          `json:"-"`
 }
 
-func (req *HTTPListResponse) Identifier() string {
+func (req *HTTPListRequest) Identifier() string {
     return req.RequestID.String()
 }
 
-func (req *HTTPMapResponse) Identifier() string {
+func (req *HTTPMapRequest) Identifier() string {
     return req.RequestID.String()
 }

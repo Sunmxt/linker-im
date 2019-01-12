@@ -4,29 +4,29 @@ import (
     "sync"
     "container/heap"
     "errors"
+    "fmt"
 )
 
-// Drip is pool item
+// Drip is item of pool.
 type Drip struct {
     used int
     index int
     pool *Pool
-    x interface{}
+    X interface{}
 }
 
 func (d *Drip) Release(err error) {
     d.pool.lock.Lock()
-
     defer d.pool.lock.Unlock()
 
-    if !p.Interface.Healthy(x, err) {
-        if d.index > 0 {
-            // Remove unhealth drip.
-            heap.Remove(pool, d.index)
-            defer d.pool.Notify(&NotifyContext{
+    if !d.pool.Interface.Healthy(d.X, err) {
+        if d.index >= 0 {
+            // Remove drip when drip is unhealthy or pool is closed.
+            heap.Remove(d.pool, d.index)
+            d.pool.Interface.Notify(&NotifyContext{
                 Event: POOL_REMOVE_DRIP,
                 Related: d,
-                Used: d.used
+                Used: d.used,
                 Index: -1, 
                 DripCount: len(d.pool.drip),
                 Error: nil,
@@ -35,23 +35,23 @@ func (d *Drip) Release(err error) {
     }
 
     d.used --
-    defer d.pool.Notify(&NotifyContext{
+    d.pool.Interface.Notify(&NotifyContext{
         Event: DRIP_USED_COUNTER_DOWN,
         Related: d,
         Used: d.used,
-        Index, d.index,
+        Index: d.index,
         DripCount: len(d.pool.drip),
         Error: nil,
     })
     d.pool.wakeSleeper(1)
 
     if d.index >= 0 {
-        heap.Fix(d, d.index)
+        heap.Fix(d.pool, d.index)
 
     } else if d.used <= 0 {
-        p.Interface.Destroy(d.x)
+        d.pool.Interface.Destroy(d.X)
 
-        defer d.pool.Notify(&NotifyContext{
+        d.pool.Interface.Notify(&NotifyContext{
             Event: POOL_DESTROY_DRIP,
             Related: d,
             Used: d.used,
@@ -60,13 +60,13 @@ func (d *Drip) Release(err error) {
             Error: nil,
         })
 
-        d.pool, d.x = nil
+        d.pool, d.X = nil, nil
     }
 }
 
 const (
     POOL_NEW_DRIP           = iota
-    POOL_ADD_DRIP
+    POOL_NEW
     POOL_DESTROY_DRIP
     POOL_REMOVE_DRIP     
     POOL_NEW_DRIP_FAILURE
@@ -74,9 +74,28 @@ const (
     DRIP_USED_COUNTER_DOWN
 )
 
-var ErrFull = errors.New("Pool is full.")
+var EventDescription = map[uint]string{
+    POOL_NEW: "Pool created.",
+    POOL_NEW_DRIP:  "New drip created.",
+    POOL_DESTROY_DRIP: "Drip destroyed.",
+    POOL_REMOVE_DRIP: "Drip removed.",
+    POOL_NEW_DRIP_FAILURE: "Drip creation failure.",
+    DRIP_USED_COUNTER_UP: "Drip got a new user.",
+    DRIP_USED_COUNTER_DOWN: "Drip lost an user.",
+}
 
-type DripInterface struct {
+func GetEventDescription(event uint) string {
+    desp, ok := EventDescription[event]
+    if !ok {
+        return fmt.Sprintf("Unknwon event: %v", event)
+    }
+    return desp
+}
+
+var ErrFull = errors.New("Pool is full.")
+var ErrClosed = errors.New("Pool is closed.")
+
+type DripInterface interface {
     // Allocate new drip
     New() (interface{}, error)
 
@@ -91,10 +110,11 @@ type DripInterface struct {
     Notify(ctx *NotifyContext)
 }
 
+// NotifyContext is notification holder.
 type NotifyContext struct {
     Event uint
     Related *Drip
-    Used uint32
+    Used int
     Index int
     DripCount int
     Error error
@@ -106,32 +126,45 @@ func (ctx *NotifyContext) Get() *Drip {
     }
 
     ctx.Related.used ++
-    heap.Fix(p, drip.Related.index)
+    heap.Fix(ctx.Related.pool, ctx.Related.index)
 
-    p.Interface.Notify(&NotifyContext{
+    ctx.Related.pool.Interface.Notify(&NotifyContext{
         Event: DRIP_USED_COUNTER_UP,
         Related: ctx.Related,
-        Used: ctx.Related.used
+        Used: ctx.Related.used,
         Index: ctx.Related.index,
-        DripCount: len(p.drip),
+        DripCount: len(ctx.Related.pool.drip),
         Error: nil,
     })
+
+    return ctx.Related
+}
+
+func (ctx *NotifyContext) String() string {
+    var errmsg string
+    if ctx.Error != nil {
+        errmsg = ctx.Error.Error()
+    } else {
+        errmsg = "none"
+    }
+
+    return fmt.Sprintf("{Event: \"%v\", Drip: %v, Used: %v, Index: %v, DripCount: %v, Error: \"%v\"}", GetEventDescription(ctx.Event), ctx.Related, ctx.Used, ctx.Index, ctx.DripCount, errmsg)
 }
 
 type Pool struct {
     Interface DripInterface
 
-    maxDrip     uint32
-    maxUsed     uint32
+    maxDrip     int
+    maxUsed     int
 
     drip []*Drip
 
     lock sync.Mutex
 
-    wait      uint32
+    waitc      uint32
     wake        uint32
     waiter map[uint32]*sync.WaitGroup
-    
+    closed      bool
 }
 
 func (p *Pool) Len() int {
@@ -143,7 +176,7 @@ func (p *Pool) Swap(i, j int) {
     p.drip[i], p.drip[j] = p.drip[j], p.drip[i]
 }
 
-func (p *Pool) Less(i, j int) {
+func (p *Pool) Less(i, j int) bool {
     return p.drip[i].used < p.drip[j].used
 }
 
@@ -152,7 +185,7 @@ func (p *Pool) Push(x interface{}) {
     p.drip = append(p.drip, &Drip{
         used: 0,
         index: idx,
-        x: x,
+        X: x,
         pool: p,
     })
 
@@ -160,7 +193,7 @@ func (p *Pool) Push(x interface{}) {
         Event: POOL_NEW_DRIP,
         Related: p.drip[idx],
         Used: p.drip[idx].used,
-        Index: idx + 1,
+        Index: idx,
         DripCount: idx + 1,
         Error: nil,
     })
@@ -169,37 +202,50 @@ func (p *Pool) Push(x interface{}) {
 func (p *Pool) Pop() interface{} {
     idx := len(p.drip) - 1
     p.drip[idx].index = -1
-    removed := p.drip[idx].x
+    removed := p.drip[idx].X
     p.drip = p.drip[:idx]
     return removed
 }
 
 // Create new pool
-func (p *Pool) NewPool(ifce DripInterface, maxDrip, maxUsed uint32) *Pool {
+func NewPool(ifce DripInterface, maxDrip, maxUsed int) *Pool {
     instance := &Pool{
         maxDrip: maxDrip,
         maxUsed: maxUsed,
         drip: make([]*Drip, 0, maxDrip),
         Interface: ifce,
         waiter: make(map[uint32]*sync.WaitGroup),
+        closed: false,
     }
     heap.Init(instance)
+
+    instance.Interface.Notify(&NotifyContext{
+        Event: POOL_NEW,
+        Related: nil,
+        Used: 0,
+        Index: -1,
+        DripCount: len(instance.drip),
+        Error: nil,
+    })
+
     return instance
 }
 
 func (p *Pool) wakeSleeper(sleeper uint32) {
-    for ; sleeper > 0 && p.wait > p.wake;  sleeper--, p.wake++ {
+    for sleeper > 0 && p.waitc > p.wake {
         wg, ok := p.waiter[p.wake]
         if ok && wg != nil {
             wg.Done()
         }
         delete(p.waiter, p.wake)
+        sleeper --
+        p.wake ++
     }
 }
 
-// Select the drip accoarding to straregies.
+// Select a drip accoarding to straregies.
 func (p *Pool) balanceSelect() (int, error) {
-    if len(p.drip) < 1 || p.drip[0].used >= p.maxUsed {
+    if len(p.drip) < 1 || (p.maxUsed > 0 && p.drip[0].used >= p.maxUsed) {
         return -1, ErrFull
     }
     return 0, nil
@@ -208,8 +254,8 @@ func (p *Pool) balanceSelect() (int, error) {
 // Wait for free drip.
 func (p *Pool) wait() {
     // Register myself
-    waitToken, wg := p.wait, &sync.WaitGroup{}
-    p.wait ++
+    waitToken, wg := p.waitc, &sync.WaitGroup{}
+    p.waitc ++
     p.waiter[waitToken] = wg
     wg.Add(1)
     p.lock.Unlock()
@@ -218,35 +264,49 @@ func (p *Pool) wait() {
     wg.Wait()
 }
 
-func (p *Pool) Get(wait bool) (interface{}, error) {
-    var x interface{}
+func (p *Pool) newDrip() (interface{}, error) {
+    if p.maxDrip != 0 && len(p.drip) >= p.maxDrip {
+        return nil, nil
+    }
+    
+    raw, err := p.Interface.New()
+    if err != nil {
+        p.Interface.Notify(&NotifyContext{
+            Event: POOL_NEW_DRIP_FAILURE,
+            Related: nil,
+            Used: 0,
+            Index: -1,
+            DripCount: len(p.drip),
+            Error: err,
+        })
+    } else {
+        // New drip allocated, push it.
+        heap.Push(p, raw)
+    }
+
+    return raw, err
+}
+
+func (p *Pool) Get(wait bool) (*Drip, error) {
     var drip *Drip
     var idx int
     var err error
 
     for {
         p.lock.Lock()
-        if len(p.drip) < maxDrip {
-            // More drip allowed, allocate new drip.
-            raw, err := p.Interface.New()
-            if err != nil {
-                p.Interface.Notify(&NotifyContext{
-                    Event: POOL_NEW_DRIP_FAILURE,
-                    Related: nil,
-                    Used: 0,
-                    Index: -1,
-                    DripCount: len(p.drip),
-                    Error: err,
-                })
-            } else {
-                // New drip allocated, push it.
-                heap.Push(p, raw)
-            }
+
+        if p.closed {
+            // Pool closed.
+            err = ErrClosed
+            break
         }
 
-        // Try to get drip
+        p.newDrip()
+
+        // select a drip
         idx, err = p.balanceSelect()
         if idx < 0 {
+            // No free drip. wait.
             if wait {
                 p.wait()
                 continue
@@ -258,7 +318,7 @@ func (p *Pool) Get(wait bool) (interface{}, error) {
             p.Interface.Notify(&NotifyContext{
                 Event: DRIP_USED_COUNTER_UP,
                 Related: drip,
-                Used: drip.used
+                Used: drip.used,
                 Index: drip.index,
                 DripCount: len(p.drip),
                 Error: nil,
@@ -268,5 +328,51 @@ func (p *Pool) Get(wait bool) (interface{}, error) {
     }
 
     p.lock.Unlock()
-    return x, err
+    return drip, err
+}
+
+// Close pool and wait until all drips are closed.
+func (p *Pool) Close() {
+    p.lock.Lock()
+    p.closed = true
+
+closeDrip:
+    for len(p.drip) > 0 { // If any drip exists.
+        for p.drip[0].used == 0 {
+            // Destroy free drips.
+            raw := heap.Pop(p)
+            drip, ok := raw.(*Drip)
+            if ok {
+                p.Interface.Destroy(drip.X)
+
+                p.Interface.Notify(&NotifyContext{
+                    Event: POOL_DESTROY_DRIP,
+                    Related: drip,
+                    Used: drip.used,
+                    DripCount: len(p.drip),
+                    Index: drip.index,
+                    Error: nil,
+                })
+            }
+
+            if len(p.drip) < 1 {
+                break closeDrip
+            }
+        }
+
+        // wait until new drip released.
+        p.wait()
+        p.lock.Lock()
+    }
+    p.lock.Unlock()
+}
+
+// Reset pool to initial state.
+func (p *Pool) Reset() {
+    p.Close()
+
+    p.lock.Lock()
+    p.closed = false
+
+    p.lock.Unlock()
 }

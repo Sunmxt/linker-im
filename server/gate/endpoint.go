@@ -26,12 +26,16 @@ type ServiceEndpoint struct {
 	Disabled bool
 	server.NodeID
 
-    clients *pool.Pool
+	GateID server.NodeID
+
+	clients *pool.Pool
 
 	hash             uint32
 	keepaliveRunning uint32
-	stop             chan error
-	start            chan error
+
+	stop     chan error
+	start    chan error
+	changeID chan server.NodeID
 }
 
 func NewServiceEndpoint(name, network, address, rpcPath string, maxConcurrentRequest, maxConnection int) (*ServiceEndpoint, error) {
@@ -41,46 +45,95 @@ func NewServiceEndpoint(name, network, address, rpcPath string, maxConcurrentReq
 		keepaliveRunning: 0,
 		stop:             make(chan error),
 		start:            make(chan error),
-        maxConn:          maxConnection,
+		changeID:         make(chan server.NodeID, 0),
 		Name:             name,
 		Network:          network,
 		Address:          address,
 		RPCPath:          rpcPath,
 	}
 	instance.ResetHash()
+	instance.clients = pool.NewPool(instance, maxConnection, maxConcurrentRequest)
 	return instance, nil
 }
 
 func (ep *ServiceEndpoint) New() (interface{}, error) {
-    client, err = rpc.DialHTTPPath(ep.Network, ep.Address, ep.RPCPath)
-    if err != nil {
-	    log.Infof0("Failed to connect service endpoint \"%v\" (%v).", ep.Name, err.Error())
-        return nil, err
-    }
-    return client, nil
+	client, err := rpc.DialHTTPPath(ep.Network, ep.Address, ep.RPCPath)
+	if err != nil {
+		log.Infof0("Failed to connect service endpoint \"%v\" (%v).", ep.Name, err.Error())
+		return nil, err
+	}
+	return client, nil
 }
 
 func (ep *ServiceEndpoint) Destroy(x interface{}) {
+	client, ok := x.(*rpc.Client)
+	if !ok {
+		log.Fatalf("Try to destroy object with unexcepted type. (%v)", x)
+		return
+	}
+
+	client.Close()
+	log.Infof0("Service RPC client closed.")
 }
 
 func (ep *ServiceEndpoint) Healthy(x interface{}, err error) bool {
+	netErr, isNetErr := err.(net.Error)
+	return !(err == rpc.ErrShutdown || (isNetErr && !netErr.Timeout()))
+}
+
+func (ep *ServiceEndpoint) bootstrap() {
+	log.Infof0("Bootstraping connection of endpoint \"%v\"", ep.Name)
+
+	for {
+		drip, err := ep.clients.Get(false)
+		if err == nil && drip != nil {
+			drip.Release(nil)
+			break
+		}
+
+		log.Infof0("Bootstraping failure of endpoint \"%v\" (%v).", ep.Name, err.Error())
+		<-time.After(time.Duration(10) * time.Second)
+	}
 }
 
 func (ep *ServiceEndpoint) Notify(ctx *pool.NotifyContext) {
-    switch ctx.Event {
-    case pool.POOL_NEW_DRIP:
-	    log.Infof0("Service RPC client added. [dripCount = %v]", ctx.DripCount)
-    case pool.POOL_DESTROY_DRIP:
-	    log.Infof0("Service RPC client destroy. [dripCount = %v]", ctx.DripCount)
-    case pool.POOL_REMOVE_DRIP:
-	    log.Infof0("Service RPC client removed. [dripCount = %v]", ctx.DripCount)
-        // do endpoint fallback here.
-    case pool.POOL_NEW_DRIP_FAILURE:
-	    log.Infof0("Failed to add Service RPC client. (%v) [dripCount = %v]", ctx.Error.Error(), ctx.DripCount)
-    }
+	var nodeID server.NodeID
 
-    log.DebugLazy(func () string { return ctx.String() })
-    log.TraceLazy(func () string { return ctx.String() })
+	switch ctx.Event {
+	case pool.POOL_NEW:
+		// bootstrap endpoint connection.
+		go ep.bootstrap()
+
+	case pool.POOL_NEW_DRIP:
+		log.Infof0("Service RPC client added. [dripCount = %v]", ctx.DripCount)
+
+		drip := ctx.Get()
+		if drip == nil {
+			log.Warn("Keepalive routine cannot start (nil drip returned). service endpoint may not be used by load balancer.")
+			break
+		}
+		ep.changeID <- ep.NodeID
+		go ep.keepalive(drip)
+
+	case pool.POOL_DESTROY_DRIP:
+		log.Infof0("Service RPC client destroy. [dripCount = %v]", ctx.DripCount)
+
+	case pool.POOL_REMOVE_DRIP:
+		log.Infof0("Service RPC client removed. [dripCount = %v]", ctx.DripCount)
+		if ctx.DripCount == 0 {
+			copy(nodeID[:], server.EMPTY_NODE_ID[:])
+			ep.changeID <- nodeID
+
+			// reboot endpoint connection.
+			go ep.bootstrap()
+		}
+
+	case pool.POOL_NEW_DRIP_FAILURE:
+		log.Infof0("Failed to add Service RPC client. (%v) [dripCount = %v]", ctx.Error.Error(), ctx.DripCount)
+	}
+
+	log.DebugLazy(func() string { return ctx.String() })
+	log.DebugLazy(func() string { return fmt.Sprintf("pool:%v", ep.clients) })
 }
 
 func (ep *ServiceEndpoint) Rehash() {
@@ -97,12 +150,6 @@ func (ep *ServiceEndpoint) ResetHash() {
 	ep.hash = fnvHash.Sum32()
 }
 
-func (ep *ServiceEndpoint) Get() *ServiceRPCClient {
-}
-
-func (ep *ServiceRPCClient) Free(client *ServiceRPCClient) {
-}
-
 func (ep *ServiceEndpoint) Hash() uint32 {
 	return ep.hash
 }
@@ -111,123 +158,119 @@ func (ep *ServiceEndpoint) OrderLess(bucket server.Bucket) bool {
 	return strings.Compare(ep.Name, bucket.(*ServiceEndpoint).Name) < 0
 }
 
-func (ep *ServiceEndpoint) disable(set *ServiceEndpointSet) {
-	set.lock.Lock()
-	defer set.lock.Unlock()
+func (ep *ServiceEndpoint) keepalive(drip *pool.Drip) {
+	var err error
 
-	// remove myself from ring
-	set.ring.RemoveHash(ep.hash)
-	ep.Disabled = true
-	log.Infof0("Disable inactive service endpoint \"%v\".", ep.Name)
-}
+	log.Infof0("Start keepalive with endpoint \"%v\".", ep.Name)
 
-func (ep *ServiceEndpoint) enable(set *ServiceEndpointSet) {
-	set.lock.Lock()
-	defer set.lock.Unlock()
+	client, ok := drip.X.(*rpc.Client)
+	if !ok {
+		log.Warn("Keepalive routine of endpoint \"%v\"cannot start (not a rpc client). service endpoint may not be used by load balancer.", ep.Name)
+		return
+	}
+	for failTime := 1; ep.keepaliveRunning > 0; {
+		reply := &proto.KeepaliveServiceInformation{}
 
-	// append myself to ring
-	set.ring.Append(ep)
-	ep.Disabled = false
-	log.Infof0("Enable active service endpoint \"%v\" (Hash = %v).", ep.Name, ep.Hash())
-}
+		rpcBeginTime := time.Now()
+		err = client.Call("ServiceRPC.Keepalive", &proto.KeepaliveServiceInformation{
+			NodeID: ep.GateID,
+		}, reply)
+		cost := int64(time.Now().Sub(rpcBeginTime)) / 1000000
 
-func (ep *ServiceEndpoint) changeID(nodeID *server.NodeID, set *ServiceEndpointSet) bool {
-	if bytes.Equal(nodeID[:], ep.NodeID[:]) {
-		return false
+		if err != nil {
+			if !ep.Healthy(client, err) {
+				log.Infof0("Keepalive check of endpoint \"%v\" failure (%v).", ep.Name, err.Error())
+				break
+			} else {
+				failTime++
+				log.Infof0("[%v ms] Keepalive failure %v with service endpoint \"%v\". (%v)", cost, failTime, ep.Name, err.Error())
+				if failTime > 2 {
+					log.Infof0("Service endpoint \"%v\" may fail.", ep.Name)
+					break
+				}
+			}
+		} else {
+			if failTime > 0 {
+				log.Infof0("[%v ms] Keepalive succeed with service endpoint \"%v\".", cost, ep.Name)
+			}
+
+			failTime = 0
+			ep.changeID <- reply.NodeID
+		}
 	}
 
-	set.lock.Lock()
-	defer set.lock.Unlock()
-
-	if !bytes.Equal(ep.NodeID[:], server.EMPTY_NODE_ID) {
-		delete(set.FromID, ep.NodeID.AsKey())
-		log.Infof0("Service endpoint \"%v\" ID Changed: %v -> %v", ep.Name, ep.NodeID.String(), nodeID.String())
-	} else {
-		log.Infof0("Service endpoint \"%v\" joined with ID: %v", ep.Name, nodeID.String())
-	}
-	set.FromID[nodeID.AsKey()] = ep
-	ep.NodeID.Assign(nodeID)
-	ep.ResetHash()
-	return true
+	drip.Release(err)
+	log.Infof0("Keepalive routine of endpoint \"%v\" exiting...", ep.Name)
 }
 
-func (ep *ServiceEndpoint) GoKeepalive(set *ServiceEndpointSet) error {
+func (ep *ServiceEndpoint) ringUpdate(gateID server.NodeID, set *ServiceEndpointSet) {
+	log.Infof0("Start watching connection state of endpoint \"%v\".", ep.Name)
+
+	ep.start <- nil
+	ep.GateID = gateID
+
+	for count := 0; ep.keepaliveRunning > 0; count++ {
+		nodeID, more := <-ep.changeID
+		if !more {
+			break
+		}
+		log.Debugf("Receive NodeID \"%v\" of endpoint \"%v\".", nodeID.String(), ep.Name)
+
+		if !bytes.Equal(nodeID[:], ep.NodeID[:]) {
+			// ID Changed.
+			set.lock.Lock()
+
+			if !bytes.Equal(ep.NodeID[:], server.EMPTY_NODE_ID) {
+				// remove myself from ring
+				delete(set.FromID, ep.NodeID.AsKey())
+				set.ring.RemoveHash(ep.hash)
+				ep.ResetHash()
+
+				log.Infof0("Service endpoint \"%v\" ID changed from \"%v\" to \"%v\"", ep.Name, ep.NodeID.String(), nodeID.String())
+			} else {
+				log.Infof0("Service endpoint \"%v\" joined with ID \"%v\"", ep.Name, nodeID.String())
+			}
+
+			if !bytes.Equal(nodeID[:], server.EMPTY_NODE_ID) {
+				// append myself to ring
+				set.FromID[nodeID.AsKey()] = ep
+				set.ring.Append(ep)
+			} else {
+				log.Infof0("Disable inactive service endpoint \"%v\".", ep.Name)
+			}
+
+			ep.NodeID.Assign(&nodeID)
+			set.lock.Unlock()
+
+			log.Debugf("HashRing: %v", set.ring)
+		}
+
+		if count >= ep.clients.Len()+1 {
+			<-time.After(time.Duration(set.KeepalivePeriod) * time.Second)
+			count = 0
+		}
+	}
+
+	ep.stop <- nil
+}
+
+func (ep *ServiceEndpoint) StartKeepalive(set *ServiceEndpointSet) error {
 	if !atomic.CompareAndSwapUint32(&ep.keepaliveRunning, 0, 1) {
 		return nil
 	}
 
-	go func() {
-		var err error = nil
-		log.Infof0("Start keepalive with endpoint \"%v\".", ep.Name)
-		ep.start <- nil
-		failureTimes := 0
-
-		for ep.keepaliveRunning > 0 {
-			log.Debugf("HashRing:%v", set.ring)
-			if ep.rpcClient == nil {
-				ep.rpcClient, err = rpc.DialHTTPPath(ep.Network, ep.Address, ep.RPCPath)
-				if err != nil {
-					log.Infof0("Failed to connect service endpoint \"%v\" (%v).", ep.Name, err.Error())
-					ep.rpcClient = nil
-				} else {
-					continue
-				}
-				failureTimes = 0
-			} else {
-				rpcBeginTime := time.Now()
-				err, info := ep.Keepalive(set.GateID)
-				cost := int64(time.Now().Sub(rpcBeginTime)) / 1000000
-				if err != nil {
-					failureTimes += 1
-					log.Infof0("[%v ms] Keepalive failure %v with service endpoint \"%v\". (%v)", cost, failureTimes, ep.Name, err.Error())
-					netErr, isNetErr := err.(net.Error)
-					if failureTimes > 2 || (isNetErr && !netErr.Timeout()) || err == rpc.ErrShutdown {
-						ep.disable(set)
-
-						log.Infof0("Service endpoint \"%v\" may fail. Fallback to dial.", ep.Name)
-						ep.rpcClient.Close()
-						ep.rpcClient = nil
-						continue
-					}
-				} else {
-					log.Infof2("[%v ms] Keepalive succeed with service endpoint \"%v\".", cost, ep.Name)
-					failureTimes = 0
-					if ep.changeID(&info.NodeID, set) {
-						// Re-append bucket to ensure Hash Rings are all the same among gateways.
-						ep.disable(set)
-					}
-					if ep.Disabled == true {
-						ep.enable(set)
-					}
-				}
-			}
-			<-time.After(time.Duration(set.KeepalivePeriod) * time.Second)
-		}
-
-		ep.keepaliveRunning = 0
-		ep.stop <- nil
-	}()
+	go ep.ringUpdate(set.GateID, set)
 
 	return <-ep.start
 }
 
 func (ep *ServiceEndpoint) StopKeepalive() error {
 	atomic.SwapUint32(&ep.keepaliveRunning, 0)
+	close(ep.changeID)
+
+	ep.clients.Close()
+
 	return <-ep.stop
-}
-
-// RPC Methods
-func (ep *ServiceEndpoint) Keepalive(gateID server.NodeID) (error, *proto.KeepaliveServiceInformation) {
-	reply := &proto.KeepaliveServiceInformation{}
-
-	err := ep.rpcClient.Call("ServiceRPC.Keepalive", &proto.KeepaliveGatewayInformation{
-		NodeID: gateID,
-	}, reply)
-	if err != nil {
-		return err, nil
-	}
-
-	return nil, reply
 }
 
 // ServiceEndpointSet resources
@@ -252,12 +295,12 @@ func NewServiceEndpointSet() *ServiceEndpointSet {
 	}
 }
 
-func NewServiceEndpointSetFromFlag(flagValue *cmdline.NetEndpointSetValue) *ServiceEndpointSet {
+func NewServiceEndpointSetFromFlag(flagValue *cmdline.NetEndpointSetValue, maxConn, maxCurrency int) *ServiceEndpointSet {
 	var err error
 	instance := NewServiceEndpointSet()
 	// Create all endpoints.
 	for name, opt := range flagValue.Endpoints {
-		instance.FromName[name], err = NewServiceEndpoint(name, opt.Scheme, opt.AuthorityString(), proto.RPC_PATH)
+		instance.FromName[name], err = NewServiceEndpoint(name, opt.Scheme, opt.AuthorityString(), proto.RPC_PATH, maxCurrency, maxConn)
 		if err != nil {
 			log.Errorf("Cannot create ServiceEndpoint: %v", name)
 		}
@@ -277,7 +320,7 @@ func (set *ServiceEndpointSet) AddEndpoint(endpoint *ServiceEndpoint) error {
 	set.FromName[endpoint.Name] = endpoint
 
 	if set.keepaliveRunning > 0 {
-		err = endpoint.GoKeepalive(set)
+		err = endpoint.StartKeepalive(set)
 	}
 	if err != nil {
 		delete(set.FromName, endpoint.Name)
@@ -317,9 +360,9 @@ func (set *ServiceEndpointSet) GoKeepalive(nodeID server.NodeID, period uint) er
 
 	var err error = nil
 	for name, endpoint := range set.FromName {
-		err = endpoint.GoKeepalive(set)
+		err = endpoint.StartKeepalive(set)
 		if err != nil {
-			log.Infof0("Failed to start keepalive routine for endpoint %v: %v", name, err.Error())
+			log.Infof0("Failed to start keepalive routine of endpoint \"%v\" (\"%v\")", name, err.Error())
 			break
 		}
 	}
