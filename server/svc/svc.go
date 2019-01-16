@@ -10,7 +10,7 @@ var Config *ServiceOptions
 func LogConfigure() {
 	ilog.Infof0("-endpoint=%v", Config.Endpoint.String())
 	ilog.Infof0("-log-level=%v", Config.LogLevel.String())
-	ilog.Infof0("-redis-endpoint=%v", Config.LogLevel.String())
+	ilog.Infof0("-redis-endpoint=%v", Config.RedisEndpoint.String())
 	ilog.Infof0("-redis-prefix=%v", Config.RedisPrefix.String())
 	ilog.Infof0("-persist-endpoint=%v", Config.PersistStorageEndpoint.String())
 	ilog.Infof0("-cache-timeout=%v", Config.CacheTimeout.Value)

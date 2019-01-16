@@ -3,6 +3,7 @@ package gate
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
@@ -17,6 +18,10 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// Errors
+var ErrEndpointMissing = errors.New("No avaliable endpoint.")
+var ErrEndpointType = errors.New("Wrong type of endpoint.")
 
 type ServiceEndpoint struct {
 	Name     string
@@ -112,7 +117,6 @@ func (ep *ServiceEndpoint) Notify(ctx *pool.NotifyContext) {
 			log.Warn("Keepalive routine cannot start (nil drip returned). service endpoint may not be used by load balancer.")
 			break
 		}
-		ep.changeID <- ep.NodeID
 		go ep.keepalive(drip)
 
 	case pool.POOL_DESTROY_DRIP:
@@ -273,6 +277,14 @@ func (ep *ServiceEndpoint) StopKeepalive() error {
 	return <-ep.stop
 }
 
+func (ep *ServiceEndpoint) Get(timeout uint32) (*pool.Drip, error) {
+	return ep.clients.Get(true, timeout)
+}
+
+func (ep *ServiceEndpoint) TryGet() (*pool.Drip, error) {
+	return ep.clients.Get(false, 0)
+}
+
 // ServiceEndpointSet resources
 type ServiceEndpointSet struct {
 	lock sync.RWMutex
@@ -294,6 +306,7 @@ func NewServiceEndpointSet() *ServiceEndpointSet {
 		FromName:         make(map[string]*ServiceEndpoint),
 		ring:             server.NewEmptyHashRing(),
 		keepaliveRunning: 0,
+		round:            0,
 	}
 }
 
@@ -392,10 +405,79 @@ func (set *ServiceEndpointSet) StopKeepalive() {
 	atomic.SwapUint32(&set.keepaliveRunning, 0)
 }
 
-//func (set *ServiceEndpointSet) Get(wait bool) (*rpc.Client, error) {
-//	return nil, nil
-//}
-//
-//func (set *ServiceEndpointSet) HashGet(wait bool) (*rpc.Client, error) {
-//	return nil, nil
-//}
+// Select an endpoint by round-robin
+func (set *ServiceEndpointSet) RoundRobinSelect() (*ServiceEndpoint, error) {
+	round := atomic.AddUint32(&set.round, 1)
+
+	set.lock.RLock()
+	if r := set.ring.Len(); r <= 0 {
+		round = 0
+	} else {
+		round = round % uint32(r)
+	}
+	bucket := set.ring.At(int(round))
+	set.lock.RUnlock()
+
+	if bucket == nil {
+		return nil, ErrEndpointMissing
+	}
+	endpoint, ok := bucket.(*ServiceEndpoint)
+	if !ok {
+		return nil, ErrEndpointType
+	}
+
+	return endpoint, nil
+}
+
+// Select an endpoint by hash
+func (set *ServiceEndpointSet) HashSelect(h server.Hashable) (*ServiceEndpoint, error) {
+	set.lock.RLock()
+	_, bucket := set.ring.Hit(h)
+	set.lock.RUnlock()
+
+	if bucket == nil {
+		return nil, ErrEndpointMissing
+	}
+	endpoint, ok := bucket.(*ServiceEndpoint)
+	if !ok {
+		return nil, ErrEndpointType
+	}
+
+	return endpoint, nil
+}
+
+func (set *ServiceEndpointSet) TryGet() (*pool.Drip, error) {
+	endpoint, err := set.RoundRobinSelect()
+	if err != nil {
+		return nil, err
+	}
+
+	return endpoint.TryGet()
+}
+
+func (set *ServiceEndpointSet) Get(timeout uint32) (*pool.Drip, error) {
+	endpoint, err := set.RoundRobinSelect()
+	if err != nil {
+		return nil, err
+	}
+
+	return endpoint.Get(timeout)
+}
+
+func (set *ServiceEndpointSet) HashTryGet(h server.Hashable) (*pool.Drip, error) {
+	endpoint, err := set.HashSelect(h)
+	if err != nil {
+		return nil, err
+	}
+
+	return endpoint.TryGet()
+}
+
+func (set *ServiceEndpointSet) HashGet(h server.Hashable, timeout uint32) (*pool.Drip, error) {
+	endpoint, err := set.HashSelect(h)
+	if err != nil {
+		return nil, err
+	}
+
+	return endpoint.Get(timeout)
+}

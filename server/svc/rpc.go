@@ -10,6 +10,8 @@ import (
 	"net/http"
 )
 
+// Errors
+
 type ServiceRPC struct {
 	server.NodeID
 	log *ilog.Logger
@@ -49,19 +51,14 @@ func (svc ServiceRPC) NamespaceAdd(args *proto.NamespaceArguments, reply *proto.
 		svc.logError(err)
 	}()
 
-	res, err = resource.Registry.AuthAccess("namespace", nil)
+	res, err = svc.getResource("namespace", nil)
 	if err != nil {
-		if _, ok := err.(resource.ResourceAuthError); ok {
-			svc.log.Infof1("")
-			return nil
-		} else {
-			return err
-		}
+		return err
 	}
 
 	sessionNamespace, ok := res.(*SessionNamespace)
 	if !ok {
-		return errors.New("Resource has invalid type.")
+		return errors.New("Resource \"namespace\" has invalid type.")
 	}
 
 	if err = sessionNamespace.Append(args.Names); err != nil {
@@ -71,8 +68,68 @@ func (svc ServiceRPC) NamespaceAdd(args *proto.NamespaceArguments, reply *proto.
 	return nil
 }
 
+func (svc ServiceRPC) getResource(name string, credentials map[string]string) (interface{}, error) {
+	res, err := resource.Registry.AuthAccess(name, credentials)
+	if err != nil {
+		if _, ok := err.(resource.ResourceAuthError); ok {
+			svc.log.Infof0("Deny access to resource \"%v\" (%v).", name, err.Error())
+			return nil, err
+		} else {
+			return nil, err
+		}
+	}
+	return res, err
+}
+
 func (svc ServiceRPC) NamespaceList(args *proto.Dummy, reply *proto.NamespaceListReply) error {
-	return fmt.Errorf("Not avaliable.")
+	var res interface{}
+	var err error
+
+	defer func() {
+		svc.logError(err)
+	}()
+
+	res, err = svc.getResource("namespace", nil)
+	if err != nil {
+		return err
+	}
+
+	sessionNamespace, ok := res.(*SessionNamespace)
+	if !ok {
+		return errors.New("Resource \"namespace\" has invalid type.")
+	}
+
+	reply.Names, err = sessionNamespace.List()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (svc ServiceRPC) NamespaceRemove(args *proto.NamespaceArguments, reply *proto.Dummy) error {
+	var res interface{}
+	var err error
+
+	defer func() {
+		svc.logError(err)
+	}()
+
+	res, err = svc.getResource("namespace", nil)
+	if err != nil {
+		return err
+	}
+
+	sessionNamespace, ok := res.(*SessionNamespace)
+	if !ok {
+		return errors.New("Resource \"namespace\" has invalid type.")
+	}
+
+	if err = sessionNamespace.Remove(args.Names); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func ServeRPC() error {

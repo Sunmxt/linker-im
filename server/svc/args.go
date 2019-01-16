@@ -81,7 +81,7 @@ func configureParse() (*ServiceOptions, error) {
 		ilog.Panicf(FLAGS_CREATING_FAILURE, err.Error())
 		return nil, err
 	}
-	if redisEndpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "127.0.0.1:2379"); err != nil {
+	if redisEndpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "127.0.0.1:6379"); err != nil {
 		ilog.Panicf(FLAGS_CREATING_FAILURE, err.Error())
 		return nil, err
 	}

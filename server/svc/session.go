@@ -12,9 +12,10 @@ var ErrNamespaceMissing = errors.New("Namespace missing.")
 
 func VaildNamespaceName(name string) bool {
 	for _, runeValue := range name {
-		if runeValue < 'A' || runeValue > 'z' || (runeValue < 'a' && runeValue > 'Z') || (runeValue != '-' && runeValue != '_') {
-			return false
+		if (runeValue >= '0' && runeValue <= '9') || (runeValue >= 'A' && runeValue <= 'Z') || (runeValue >= 'a' && runeValue <= 'z') || runeValue == '-' || runeValue == '_' {
+			continue
 		}
+		return false
 	}
 	return true
 }
@@ -58,5 +59,21 @@ func (ns *SessionNamespace) Append(namespaces []string) error {
 	ns.log.Infof0("Session namespace \"" + strings.Join(namespaces, "\",\"") + "\"added." + fmt.Sprintf("(version = %v)", version))
 	ns.logTraceNamespace()
 
+	return nil
+}
+
+func (ns *SessionNamespace) List() ([]string, error) {
+	namespaces, _, err := ns.ns.List()
+	if err != nil {
+		return nil, err
+	}
+	return namespaces, nil
+}
+
+func (ns *SessionNamespace) Remove(namespaces []string) error {
+	_, err := ns.ns.Remove(namespaces)
+	if err != nil {
+		return err
+	}
 	return nil
 }

@@ -314,9 +314,21 @@ func (logger *Logger) DebugLazy(export func() string) {
 	}
 }
 
+func (logger *Logger) DebugMapLazy(export func() string, fields map[string]interface{}) {
+	if globalLogLevel >= 4 {
+		logger.Debug(fields, export())
+	}
+}
+
 func (logger *Logger) TraceLazy(export func() string) {
 	if globalLogLevel >= 5 {
 		logger.Trace(export())
+	}
+}
+
+func (logger *Logger) TraceMapLazy(export func() string, fields map[string]interface{}) {
+	if globalLogLevel >= 5 {
+		logger.Trace(fields, export())
 	}
 }
 

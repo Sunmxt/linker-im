@@ -22,11 +22,15 @@ var ScriptVCCSList = redis.NewScript(1, `
     if dirty == nil or dirty == 0 then
         version = tonumber(redis.call('get', KEYS[1] .. '.v'))
     end
-    if nil == version or 0 == redis.call('sismember', '?v' .. version) then
+    if nil == version or 0 == redis.call('sismember', KEYS[1], '?v' .. version) then
         redis.call('del', KEYS[1] .. '.v', KEYS[1])
         return {0}
     end
-    result = redis.call('smembers', KEYS[1])
+
+    redis.call('srem', KEYS[1], '?v' .. version)
+    local result = redis.call('smembers', KEYS[1])
+    redis.call('sadd', KEYS[1], '?v' .. version)
+
     if #ARGV > 0 then
         local nx = tonumber(ARGV[1])
         if nx ~= nil and nx > 0 then
@@ -47,7 +51,7 @@ var ScriptVCCSUpdate = redis.NewScript(1, `
         return {0, -1}
     end
     local version = tonumber(redis.call('get', KEYS[1] .. '.v'))
-    if version == nil or 0 == redis.call('sismember', '?v' .. version) then
+    if version == nil or 0 == redis.call('sismember', KEYS[1], '?v' .. version) then
         redis.call('del', KEYS[1] .. '.v', KEYS[1])
         version = 0
     end
@@ -60,7 +64,7 @@ var ScriptVCCSUpdate = redis.NewScript(1, `
         redis.call('sadd', KEYS[1], unpack(ARGV, 3, #ARGV), '?v' .. to_version)
         redis.call('set', KEYS[1] .. '.v', to_version)
         redis.call('set', KEYS[1] .. '.dirty', 0)
-        return {0, to_version}
+        return {1, to_version}
     end
     local nx = tonumber(ARGV[2])
     if nx ~= nil and nx > 0 then
@@ -68,7 +72,7 @@ var ScriptVCCSUpdate = redis.NewScript(1, `
         redis.call('setnx', KEYS[1] .. '.v', nx)
         redis.call('setnx', KEYS[1] .. '.dirty', nx)
     fi
-    return {1, version}
+    return {0, version}
 `)
 
 // Append VCCS entries
@@ -77,7 +81,7 @@ var ScriptVCCSUpdate = redis.NewScript(1, `
 // RET: new_version nen_of_appended
 //      new_version entry1 entry2 ...   // calc only
 var ScriptVCCSAppend = redis.NewScript(1, `
-    if #ARGV < 3 than
+    if #ARGV < 3 then
         return {-1}
     end
     local calc_only = tonumber(ARGV[2])
@@ -88,26 +92,32 @@ var ScriptVCCSAppend = redis.NewScript(1, `
         version = tonumber(redis.call('get', KEYS[1] .. '.v'))
     end
 
-    if nil == version or 0 == redis.call('sismember', '?v' .. version) then
+    if nil == version or 0 == redis.call('sismember', KEYS[1], '?v' .. version) then
         redis.call('del', KEYS[1] .. '.v', KEYS[1])
         if allow_dirty == 0 then
             return {0}
         else
             version = 0
         end
-    end
-
+	end
+	
     redis.call('srem', KEYS[1], '?v' .. version)
     local result = nil
-    if calc_only == 1 then
-        redis.call('sadd', KEYS[1] .. '.append', unpack(ARGV, 3, #ARGV))
-        result = redis.call('sunion', KEYS[1], KEYS[1] .. '.append')
-        result = {version + 1, unpack(result)}
-        redis.call('del', KEYS[1] .. '.append')
-        redis.call('set', KEYS[1] .. '.dirty', 1)
-        redis.call('sadd', KEYS[1], '?v' .. version)
-    else
-        result = redis.call('sadd', KEYS[1], unpack(ARGV, 3, #ARGV))
+	if calc_only == 1 then
+		if #ARGV > 3 then
+			redis.call('sadd', KEYS[1] .. '.append', unpack(ARGV, 4, #ARGV))
+		end
+        	result = redis.call('sunion', KEYS[1], KEYS[1] .. '.append')
+        	result = {version + 1, unpack(result)}
+        	redis.call('del', KEYS[1] .. '.append')
+        	redis.call('set', KEYS[1] .. '.dirty', 1)
+        	redis.call('sadd', KEYS[1], '?v' .. version)
+	else
+		if #ARGV > 3 then
+			result = redis.call('sadd', KEYS[1], unpack(ARGV, 4, #ARGV))
+		else
+			result = 0
+		end
         result = {version + 1, result}
         redis.call('set', KEYS[1] .. '.v', version + 1)
         redis.call('sadd', KEYS[1], '?v' .. (version + 1))
@@ -132,6 +142,7 @@ var ScriptVCCSRemove = redis.NewScript(1, `
     if #ARGV < 3 then
         return {-1}
     end
+    local result = nil
     local calc_only = tonumber(ARGV[2])
     local allow_dirty = tonumber(ARGV[3])
     local version = nil
@@ -140,7 +151,7 @@ var ScriptVCCSRemove = redis.NewScript(1, `
         version = tonumber(redis.call('get', KEYS[1] .. '.v'))
     end
 
-    if nil == version or 0 == redis.call('sismember', '?v' .. version) then
+    if nil == version or 0 == redis.call('sismember', KEYS[1], '?v' .. version) then
         redis.call('del', KEYS[1] .. '.v', KEYS[1])
         if allow_dirty == 0 then
             return {0}
@@ -149,15 +160,18 @@ var ScriptVCCSRemove = redis.NewScript(1, `
         end
     end
     redis.call('srem', KEYS[1], '?v' .. version)
-    if calc_only == 0 then
+    if calc_only == 1 then
         redis.call('sadd', KEYS[1] .. '.sub', unpack(ARGV, 3, #ARGV))
         result = redis.call('sdiff', KEYS[1], KEYS[1] .. '.sub')
-        result.call('del', KEYS[1] .. '.sub')
+        redis.call('del', KEYS[1] .. '.sub')
         redis.call('set', KEYS[1] .. '.dirty', 1)
         result = {version + 1, unpack(result)}
+        redis.call('sadd', KEYS[1], '?v' .. version)
     else
-        result = redis.call('srem', KEYS[1], unpack(ARGV, 3, $ARGV))
+        result = redis.call('srem', KEYS[1], unpack(ARGV, 3, #ARGV))
         result = {version + 1, result}
+        redis.call('set', KEYS[1] .. '.v', version + 1)
+        redis.call('sadd', KEYS[1], '?v' .. (version + 1))
     end
 
     local nx = tonumber(ARGV[1])
@@ -294,7 +308,7 @@ func (s *VCCS) list(conn redis.Conn, finishConn func(conn redis.Conn)) ([]string
 			atomic.AddUint64(&s.HitCount, 1)
 
 			entries = make([]string, 0, len(raw)-1)
-			for _, entry := range raw {
+			for _, entry := range raw[1:] {
 				entries = append(entries, fmt.Sprintf("%v", entry))
 			}
 		}
@@ -392,7 +406,7 @@ func (s *VCCS) Append(entries []string) (int64, error) {
 			return -1, err
 		}
 		raw, ok = result.([]interface{})
-		if !ok || len(raw) < 2 {
+		if !ok || len(raw) < 1 {
 			return -1, ErrRedisUnexpectedResult
 		}
 		version, ok = raw[0].(int64)
@@ -461,7 +475,7 @@ func (s *VCCS) Remove(entries []string) (int64, error) {
 			return -1, err
 		}
 		raw, ok = result.([]interface{})
-		if !ok || len(raw) < 2 {
+		if !ok || len(raw) < 1 {
 			return -1, ErrRedisUnexpectedResult
 		}
 		if s.persistCap.Remove {

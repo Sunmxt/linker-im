@@ -6,12 +6,16 @@ import (
 )
 
 const (
-	SUCCEED          = 0
-	INVALID_ARGUMENT = 1
+	SUCCEED               = 0
+	INVALID_ARGUMENT      = 1
+	TIMEOUT               = 2
+	ACCESS_DEINED         = 3
+	SERVER_INTERNAL_ERROR = 4
 )
 
 var ErrorMessageFromCode map[uint32]string = map[uint32]string{
 	SUCCEED: "succeed.",
+	TIMEOUT: "Request timeout.",
 }
 
 func ErrorCodeText(code uint32) string {
