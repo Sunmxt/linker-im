@@ -338,7 +338,6 @@ func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 
 func ListNamespace(w http.ResponseWriter, req *http.Request) {
 	var rpcClient *ServiceRPCClient
-	var result []interface{}
 	var namespaces []string
 
 	ctx, err := NewAPIListRequestContext(w, req)
@@ -365,13 +364,12 @@ func ListNamespace(w http.ResponseWriter, req *http.Request) {
 		}
 		return
 	} else {
-		result = make([]interface{}, 0, len(namespaces))
+		ctx.ListData = make([]interface{}, 0, len(namespaces))
 		for _, ns := range namespaces {
-			result = append(result, ns)
+			ctx.ListData = append(ctx.ListData, ns)
 		}
 	}
 
-	ctx.ResponseWithList(result)
 	ctx.Code = proto.SUCCEED
 	ctx.CodeMessage = ""
 }
