@@ -9,6 +9,15 @@ import (
 	"sync/atomic"
 )
 
+// Constants
+var VCCS_RESERVED_PREFIX = "?v"
+
+func VCCSEscapeKey(key string) string {
+}
+
+func VCCSUnescapeKey(key string) string {
+}
+
 var ErrRedisMissing = errors.New("Redis pool missing.")
 var ErrRedisUnexpectedResult = errors.New("Script return unexpected result.")
 
@@ -78,11 +87,11 @@ var ScriptVCCSUpdate = redis.NewScript(1, `
 // Append VCCS entries
 // KEYS: key
 // ARGS: setnx_timeout calc_only allow_dirty entry1 entry2 ...
-// RET: new_version nen_of_appended
-//      new_version entry1 entry2 ...   // calc only
+// RET: new_version num_of_appended
+//      new_version num_of_appended entry1 entry2 ...   // calc only
 var ScriptVCCSAppend = redis.NewScript(1, `
     if #ARGV < 3 then
-        return {-1}
+        return {-1, 0}
     end
     local calc_only = tonumber(ARGV[2])
     local allow_dirty = tonumber(ARGV[3])
@@ -95,7 +104,7 @@ var ScriptVCCSAppend = redis.NewScript(1, `
     if nil == version or 0 == redis.call('sismember', KEYS[1], '?v' .. version) then
         redis.call('del', KEYS[1] .. '.v', KEYS[1])
         if allow_dirty == 0 then
-            return {0}
+            return {0, 0}
         else
             version = 0
         end
@@ -108,7 +117,8 @@ var ScriptVCCSAppend = redis.NewScript(1, `
 			redis.call('sadd', KEYS[1] .. '.append', unpack(ARGV, 4, #ARGV))
 		end
         	result = redis.call('sunion', KEYS[1], KEYS[1] .. '.append')
-        	result = {version + 1, unpack(result)}
+            origin_count = redis.call('scard', KEYS[1])
+        	result = {version + 1, #result - origin_count, unpack(result)}
         	redis.call('del', KEYS[1] .. '.append')
         	redis.call('set', KEYS[1] .. '.dirty', 1)
         	redis.call('sadd', KEYS[1], '?v' .. version)
@@ -135,8 +145,8 @@ var ScriptVCCSAppend = redis.NewScript(1, `
 // Remove VCCS entries
 // KEYS: key
 // ARGS: setnx_timeout calc_only allow_dirty entry1 entry2 ...
-// RET: new_version new_of_removed
-//      new_version entry1 entry2 ...   // calc only
+// RET: new_version num_of_removed
+//      new_version num_of_removed entry1 entry2 ...   // calc only
 
 var ScriptVCCSRemove = redis.NewScript(1, `
     if #ARGV < 3 then
@@ -163,9 +173,10 @@ var ScriptVCCSRemove = redis.NewScript(1, `
     if calc_only == 1 then
         redis.call('sadd', KEYS[1] .. '.sub', unpack(ARGV, 3, #ARGV))
         result = redis.call('sdiff', KEYS[1], KEYS[1] .. '.sub')
+        origin_count = redis.call('scard', KEYS[1])
         redis.call('del', KEYS[1] .. '.sub')
         redis.call('set', KEYS[1] .. '.dirty', 1)
-        result = {version + 1, unpack(result)}
+        result = {version + 1, origin_count - #result, unpack(result)}
         redis.call('sadd', KEYS[1], '?v' .. version)
     else
         result = redis.call('srem', KEYS[1], unpack(ARGV, 3, #ARGV))
@@ -184,7 +195,7 @@ var ScriptVCCSRemove = redis.NewScript(1, `
 `)
 
 type VCCS struct {
-	redisPool  *redis.Pool
+	RedisPool  *redis.Pool
 	persist    VCCSPersistPrimitive
 	persistCap *VCCSPersistCapabilities
 
@@ -196,36 +207,19 @@ type VCCS struct {
 	log         *ilog.Logger
 }
 
-func NewVCCS(network, address, prefix, hashtag string, timeout, maxWorker int, primitive VCCSPersistPrimitive) *VCCS {
+func NewVCCS(redisPool *redis.Pool, prefix, hashtag string, timeout int, primitive VCCSPersistPrimitive) *VCCS {
 	var persistCap *VCCSPersistCapabilities
-
-	if maxWorker < 1 {
-		maxWorker = runtime.NumCPU()
-		if maxWorker < 1 {
-			maxWorker = 4
-		}
-	}
-
-	if timeout < 0 {
-		timeout = 0
-	}
 	if primitive != nil {
 		persistCap = primitive.Capabilities()
 		if persistCap == nil {
 			primitive = nil
 		}
 	}
+	if timeout < 0 {
+		timeout = 0
+	}
 	instance := &VCCS{
-		redisPool: &redis.Pool{
-			Dial: func() (redis.Conn, error) {
-				return redis.Dial(network, address)
-			},
-			MaxIdle:         maxWorker,
-			MaxActive:       maxWorker,
-			Wait:            true,
-			MaxConnLifetime: 0,
-			IdleTimeout:     0,
-		},
+		RedisPool:   redisPool,
 		Timeout:     timeout,
 		persist:     primitive,
 		persistCap:  persistCap,
@@ -326,7 +320,7 @@ func (s *VCCS) list(conn redis.Conn, finishConn func(conn redis.Conn)) ([]string
 func (s *VCCS) List() ([]string, int64, error) {
 	atomic.AddUint64(&s.RequestCount, 1)
 
-	conn := s.redisPool.Get()
+	conn := s.RedisPool.Get()
 	return s.list(conn, func(conn redis.Conn) {
 		conn.Close()
 	})
@@ -365,15 +359,16 @@ func (s *VCCS) updateFromPersistStorage(conn redis.Conn) ([]string, int64, error
 	return entries, version, err
 }
 
-func (s *VCCS) Append(entries []string) (int64, error) {
+func (s *VCCS) Append(entries []string) (uint, int64, error) {
 	var result interface{}
+    var changed int64
 	var err error
 	var conn redis.Conn
 	var raw []interface{}
 	var version int64
 	var ok bool
 
-	conn = s.redisPool.Get()
+	conn = s.RedisPool.Get()
 	if s.persist == nil || (!s.persistCap.Append && !s.persistCap.Update) {
 		args := make([]interface{}, 0, len(entries)+4)
 		args = append(args, s.redisSetKey, s.Timeout, false, true)
@@ -383,15 +378,19 @@ func (s *VCCS) Append(entries []string) (int64, error) {
 		result, err = ScriptVCCSAppend.Do(conn, args...)
 		conn.Close()
 		if err != nil {
-			return -1, err
+			return 0, -1, err
 		}
 		raw, ok = result.([]interface{})
 		if !ok || len(raw) != 2 {
-			return -1, ErrRedisUnexpectedResult
+			return 0, -1, ErrRedisUnexpectedResult
 		}
 		version, ok = raw[0].(int64)
 		if !ok {
-			return -1, ErrRedisUnexpectedResult
+			return 0, -1, ErrRedisUnexpectedResult
+		}
+		changed, ok = raw[1].(int64)
+		if !ok {
+			return 0, -1, ErrRedisUnexpectedResult
 		}
 
 	} else {
@@ -403,15 +402,19 @@ func (s *VCCS) Append(entries []string) (int64, error) {
 		result, err = ScriptVCCSAppend.Do(conn, args...)
 		conn.Close()
 		if err != nil {
-			return -1, err
+			return 0, -1, err
 		}
 		raw, ok = result.([]interface{})
-		if !ok || len(raw) < 1 {
-			return -1, ErrRedisUnexpectedResult
+		if !ok || len(raw) < 2 {
+			return 0, -1, ErrRedisUnexpectedResult
 		}
 		version, ok = raw[0].(int64)
 		if !ok {
-			return -1, ErrRedisUnexpectedResult
+			return 0, -1, ErrRedisUnexpectedResult
+		}
+		changed, ok = raw[1].(int64)
+		if !ok {
+			return 0, -1, ErrRedisUnexpectedResult
 		}
 		if s.persistCap.Append {
 			_, err = s.persist.Append(entries, version)
@@ -420,29 +423,30 @@ func (s *VCCS) Append(entries []string) (int64, error) {
 			for _, rawEntry := range raw[1:] {
 				entry, ok := rawEntry.(string)
 				if !ok {
-					return -1, ErrRedisUnexpectedResult
+					return 0, -1, ErrRedisUnexpectedResult
 				}
 				entries = append(entries, entry)
 			}
 			_, err = s.persist.Update(entries, version)
 		}
 		if err != nil {
-			return -1, nil
+			return 0, -1, nil
 		}
 	}
 
-	return version, nil
+	return uint(changed), version, nil
 }
 
-func (s *VCCS) Remove(entries []string) (int64, error) {
+func (s *VCCS) Remove(entries []string) (uint, int64, error) {
 	var result interface{}
 	var conn redis.Conn
+    var changed int64
 	var err error
 	var version int64
 	var raw []interface{}
 	var ok bool
 
-	conn = s.redisPool.Get()
+	conn = s.RedisPool.Get()
 	if s.persist == nil || (!s.persistCap.Remove && !s.persistCap.Update) {
 		args := make([]interface{}, 0, len(entries)+4)
 		args = append(args, s.redisSetKey, s.Timeout, false, true)
@@ -452,17 +456,20 @@ func (s *VCCS) Remove(entries []string) (int64, error) {
 		result, err = ScriptVCCSRemove.Do(conn, args...)
 		conn.Close()
 		if err != nil {
-			return -1, err
+			return 0, -1, err
 		}
 		raw, ok = result.([]interface{})
 		if !ok || len(raw) != 2 {
-			return -1, ErrRedisUnexpectedResult
+			return 0, -1, ErrRedisUnexpectedResult
 		}
 		version, ok = raw[0].(int64)
 		if !ok {
-			return -1, ErrRedisUnexpectedResult
+			return 0, -1, ErrRedisUnexpectedResult
 		}
-
+        changed, ok = raw[1].(int64)
+        if !ok {
+            return 0, -1, ErrRedisUnexpectedResult
+        }
 	} else {
 		args := make([]interface{}, 0, len(entries)+4)
 		args = append(args, s.redisSetKey, s.Timeout, true, false)
@@ -472,12 +479,20 @@ func (s *VCCS) Remove(entries []string) (int64, error) {
 		result, err = ScriptVCCSRemove.Do(conn, args...)
 		conn.Close()
 		if err != nil {
-			return -1, err
+			return 0, -1, err
 		}
 		raw, ok = result.([]interface{})
-		if !ok || len(raw) < 1 {
-			return -1, ErrRedisUnexpectedResult
+		if !ok || len(raw) < 2 {
+			return 0, -1, ErrRedisUnexpectedResult
 		}
+		version, ok = raw[0].(int64)
+		if !ok {
+			return 0, -1, ErrRedisUnexpectedResult
+		}
+        changed, ok = raw[1].(int64)
+        if !ok {
+            return 0, -1, ErrRedisUnexpectedResult
+        }
 		if s.persistCap.Remove {
 			_, err = s.persist.Remove(entries, version)
 		} else {
@@ -485,31 +500,15 @@ func (s *VCCS) Remove(entries []string) (int64, error) {
 			for _, rawEntry := range raw[1:] {
 				entry, ok := rawEntry.(string)
 				if !ok {
-					return -1, ErrRedisUnexpectedResult
+					return 0, -1, ErrRedisUnexpectedResult
 				}
 				entries = append(entries, entry)
 			}
 		}
 		if err != nil {
-			return -1, nil
+			return 0, -1, nil
 		}
 	}
 
-	return version, nil
-}
-
-type VCCSPersistCapabilities struct {
-	Append bool
-	Remove bool
-	List   bool
-	Update bool
-}
-
-type VCCSPersistPrimitive interface {
-	Capabilities() *VCCSPersistCapabilities
-
-	List() ([]string, int64, error)
-	Append([]string, int64) (bool, error)
-	Remove([]string, int64) (bool, error)
-	Update([]string, int64) (bool, error)
+	return uint(changed), version, nil
 }

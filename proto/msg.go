@@ -1,12 +1,33 @@
 package proto
 
-type GroupID [16]byte
-type UserID [16]byte
+import (
+    guuid "github.com/satori/go.uuid"
+    "strings"
+)
+
+type ID [16]byte
+
+var EMPTY_ID []byte = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+func NewID() ID {
+    return ID(guuid.NewV4())
+}
+
+func (id ID) FromKey(key string) error {
+}
+
+func (id ID) String() {
+    return strings.Replace(guuid.UUID(*n).String(), "-", "", -1)
+}
+
+func (id ID) AsKey() string {
+    return string(id[:])
+}
 
 type RawMessage struct {
 	Namespace string
-	GroupID
-	UserID
+	GroupID ID
+	UserID ID
 	Raw []byte
 }
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	ilog "github.com/Sunmxt/linker-im/log"
+	"github.com/gomodule/redigo/redis"
 	"strings"
 )
 
@@ -25,9 +26,9 @@ type SessionNamespace struct {
 	log *ilog.Logger
 }
 
-func NewSessionNamespace(network, address, prefix string, timeout, maxWorker int, primitive VCCSPersistPrimitive) *SessionNamespace {
+func NewSessionNamespace(redisPool *redis.Pool, prefix string, timeout int, primitive VCCSPersistPrimitive) *SessionNamespace {
 	instance := &SessionNamespace{
-		ns:  NewVCCS(network, address, prefix, "session_namespace", timeout, maxWorker, primitive),
+		ns:  NewVCCS(redisPool, prefix, "session_namespace", timeout, primitive),
 		log: ilog.NewLogger(),
 	}
 	log.Fields["entity"] = "session-namespace"
@@ -51,12 +52,12 @@ func (ns *SessionNamespace) Append(namespaces []string) error {
 		}
 	}
 
-	version, err := ns.ns.Append(namespaces)
+	_, version, err := ns.ns.Append(namespaces)
 	if err != nil {
 		return err
 	}
 
-	ns.log.Infof0("Session namespace \"" + strings.Join(namespaces, "\",\"") + "\"added." + fmt.Sprintf("(version = %v)", version))
+	ns.log.Infof0("Session namespace \"" + strings.Join(namespaces, "\",\"") + "\" added." + fmt.Sprintf("(version = %v)", version))
 	ns.logTraceNamespace()
 
 	return nil
@@ -71,9 +72,12 @@ func (ns *SessionNamespace) List() ([]string, error) {
 }
 
 func (ns *SessionNamespace) Remove(namespaces []string) error {
-	_, err := ns.ns.Remove(namespaces)
+	_, version, err := ns.ns.Remove(namespaces)
 	if err != nil {
 		return err
 	}
+
+	ns.log.Infof0("Session namespace \"" + strings.Join(namespaces, "\",\"") + "\" removed." + fmt.Sprintf("(version = %v)", version))
+	ns.logTraceNamespace()
 	return nil
 }

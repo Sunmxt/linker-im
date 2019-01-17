@@ -30,6 +30,7 @@ func RegisterResources() error {
 		return err
 	}
 	svcEndpointSet.GoKeepalive(NodeID, Config.KeepalivePeriod.Value)
+
 	return nil
 }
 

@@ -33,6 +33,8 @@ type APIRequestContext struct {
 
 	RPC        *ServiceRPCClient
 	StatusCode int
+	Namespace  string
+	Group      string
 
 	Log *log.Logger
 }
@@ -374,6 +376,19 @@ func ListNamespace(w http.ResponseWriter, req *http.Request) {
 	ctx.CodeMessage = ""
 }
 
+func GroupOperation(w http.ResponseWriter, req *http.Request) {
+
+}
+
+func ListGroup(w http.ResponseWriter, req *http.Request) {
+}
+
+func ListUser(w http.ResponseWriter, req *http.Request) {
+}
+
+func UserOperation(w http.ResponseWriter, req *http.Request) {
+}
+
 func RegisterHTTPAPI(mux *gmux.Router) error {
 	// Healthz
 	APILog.Info0("Register HTTP health check at \"/healthz\"")
@@ -384,11 +399,17 @@ func RegisterHTTPAPI(mux *gmux.Router) error {
 	mux.HandleFunc("/resources", ListResource)
 
 	// Namespace
-	APILog.Info0("Resource HTTP Namespace at \"/namespace\"")
+	APILog.Info0("Register HTTP endpoint \"/namespace\"")
 	mux.HandleFunc("/namespace", NamespaceOperate).Methods("POST", "DELETE")
 	mux.HandleFunc("/namespace", ListNamespace).Methods("GET")
-	//mux.HandleFunc("/namespace/{name}", GetNamespaceMetadata)
-	//mux.HandleFunc("/namespace/{name}", NamespaceFunc).Methods("GET")
+	APILog.Info0("Register HTTP endpoint \"/group\"")
+	mux.HandleFunc("/group", ListGroup).Methods("GET")
+	mux.HandleFunc("/group", GroupOperation).Methods("POST", "DELETE")
+	APILog.Info0("Register HTTP endpoint \"/user\"")
+	mux.HandleFunc("/user", ListUser).Methods("GET")
+	mux.HandleFunc("/user", UserOperation).Methods("POST", "DELETE")
+	//APILog.Info0("Register HTTP endpoint \"msg\"")
+
 	return nil
 }
 
