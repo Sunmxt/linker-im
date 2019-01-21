@@ -15,7 +15,7 @@ type BlobMap struct {
     persist BlobMapPersistPrimitive
     prefix string
     tag string
-    timeout int
+    Timeout int
 
     Log *ilog.Logger
 }
@@ -24,6 +24,14 @@ type BlobMap struct {
 var ErrInsurfficientValues = errors.New("Insurfficient values returned from redis.")
 var ErrInvalidResult =  errors.New("Invalid result returned from redis.")
 var ErrInvalidVersionType = errors.New("Invalid data type of \"version\".")
+var ErrInvalidParams = errors.New("Invalid parameters.")
+var ErrInvalidWriteOperation = errors.New("Invalid write operation.")
+
+const (
+    OP_SET         = 1
+    OP_SET_DEFAULT = 2
+    OP_DEL         = 3
+)
 
 // Gets
 // Key: key
@@ -42,9 +50,11 @@ var ScriptBlobMapGets = redis.NewScript(1, `
         end
     end
     local result = {version}
+    redis.call('HDEL', KEYS[1], '#?v')
     if #ARGV > 1 then
         result = {unpack(result), unpack(redis.call('HMGET', KEYS[1], unpack(ARGV, 2, #ARGV)))}
     end
+    redis.call('HSET', KEYS[1], '#?v', version)
     return result
 `)
 
@@ -64,7 +74,9 @@ var ScriptBlobMapKeys = redis.NewScript(1, `
         end
     end
     local result = {version}
+    redis.call('HDEL', KEYS[1], '#?v')
     result = {unpack(result), unpack(redis.call('HKEYS', KEYS[1]))}
+    redis.call('HSET', KEYS[1], '#?v', version)
     return result
 `)
 
@@ -93,12 +105,13 @@ var ScriptBlobMapNewVersion = redis.NewScript(1, `
 
 // Update (never used when persist enabled.)
 // Key: key
-// Args: new_version [field1 key1 ...]
+// Args: op new_version [field1 key1 ...]
 // Ret: version
 var ScriptBlobMapUpdate(1, `
     local version = tonumber(redis.call('HGET', KEYS[1], '#?v'))
-    local new_version = tonumber(ARGV[1])
+    local new_version = tonumber(ARGV[2])
     local result = version
+    local op = tonumber(ARGV[1])
     if new_version == nil then
         new_version = 1
     end
@@ -106,8 +119,16 @@ var ScriptBlobMapUpdate(1, `
         redis.call('HSET', KEYS[1], '#?v', new_version)
         result = new_version
     end
-    if #ARGV > 1 then
-        redis.call('HMSET', KEYS[1], unpack(ARGV, 1, #ARGV))
+    if #ARGV > 2 then
+        if op == 2 then
+            for i = 4, #ARGV, 2 do
+                redis.call('HSETNX', KEYS[1], ARGV[i - 1], ARGV[i])
+            end 
+        else if op == 1 then
+            redis.call('HMSET', KEYS[1], unpack(ARGV, 3, #ARGV))
+        else if op == 3 then
+            redis.call('HDEL', KEYS[1], unpack(ARGV, 3, #ARGV))
+        end
     end
     return result
 `)
@@ -147,8 +168,10 @@ var ScriptBlobMapReplace(1, `
 `)
 
 type BlobMapPersistPrimitive interface {
-    Loads(tag string) (map[string]string, int64, error)
-    Sets(tag string, kv map[string]string, version int64) error
+    Loads(tag string) (map[string][]byte, int64, error)
+    Sets(tag string, kv map[string][]byte, version int64) error
+    SetDefaults(tag string, kv map[string][]byte, version int64) error
+    Dels(tag string, keys []string, version int64) error
 }
 
 func NewBlobMap(redisPool *redis.Pool, prefix, tag string, timeout int, primitive BlobMapPersistPrimitive) *BlobMap {
@@ -157,7 +180,7 @@ func NewBlobMap(redisPool *redis.Pool, prefix, tag string, timeout int, primitiv
         persist: primitive,
         prefix: prefix,
         tag: tag,
-        timeout: timeout,
+        Timeout: timeout,
         Log: ilog.NewLogger(),
     }
 
@@ -166,7 +189,7 @@ func NewBlobMap(redisPool *redis.Pool, prefix, tag string, timeout int, primitiv
 }
 
 
-func (b *BlobMap) loadBlobs(conn redis.Conn, allowDirty bool) (map[string]string, int64, error) {
+func (b *BlobMap) loadBlobs(conn redis.Conn, allowDirty bool) (map[string][]byte, int64, error) {
     kv, version, err := b.persist.Loads(b.tag)
     if err != nil {
         b.Log.Error("BlobMap persist.Load raise an error : " + err.Error())
@@ -180,12 +203,12 @@ func (b *BlobMap) loadBlobs(conn redis.Conn, allowDirty bool) (map[string]string
     return kv, version, nil
 }
 
-func (b *BlobMap) gets(conn redis.Conn, keys []string, allowDirty bool) ([]string, int64, error) {
-    var values []string
+func (b *BlobMap) gets(conn redis.Conn, keys []string, allowDirty bool) ([][]byte, int64, error) {
+    var values [][]byte
     var version int64
 
     args := make([]interface{}, 0, len(keys)+3)
-    args = append(args, b.prefix + "{" + tag + "}", b.timeout, allowDirty)
+    args = append(args, b.prefix + "{" + tag + "}", b.Timeout, allowDirty)
     for key := range keys {
         args = append(args, key)
     }
@@ -203,7 +226,7 @@ func (b *BlobMap) gets(conn redis.Conn, keys []string, allowDirty bool) ([]strin
         if version, err = redis.Int64(raw[0], ErrInvalidVersionType); err != nil {
             return nil, 0, err
         }
-        if values, err = redis.Strings(raw[1:], errors.New("Invalid data type of values")) ; err != nil {
+        if values, err = redis.ByteSlices(raw[1:], errors.New("Invalid data type of values")) ; err != nil {
             return nil, version, err
         }
         return values, version, nil
@@ -217,7 +240,7 @@ func (b *BlobMap) keys(conn redis.Conn, allowDirty bool) ([]string, int64, error
     var raw []interface{}
     var version int64
 
-    result, err := ScriptBlobMapKeys.Do(conn, b.prefix + "{" + tag + "}", b.timeout, allowDirty)
+    result, err := ScriptBlobMapKeys.Do(conn, b.prefix + "{" + tag + "}", b.Timeout, allowDirty)
     if err != nil {
         return nil, 0, err
     }
@@ -237,11 +260,11 @@ func (b *BlobMap) keys(conn redis.Conn, allowDirty bool) ([]string, int64, error
     return keys, version, nil
 }
 
-func (b *BlobMap) replace(conn redis.Conn, kv map[string]string, version int64, allowDirty bool) (int64, error) {
+func (b *BlobMap) replace(conn redis.Conn, kv map[string][]byte, version int64, allowDirty bool) (int64, error) {
     var raw []interface{}
     var version int64
     args := make([]interface{}, 0, len(kv) * 2 + 2)
-    args = append(args, b.timeout, version, allowDirty)
+    args = append(args, b.prefix + "{" + tag + "}", version, allowDirty)
     for k, v := range kv {
         args = append(args, k, v)
     }
@@ -257,21 +280,45 @@ func (b *BlobMap) replace(conn redis.Conn, kv map[string]string, version int64, 
     return version, nil
 }
 
-func (b *BlobMap) update(conn redis.Conn, kv map[string]string, version int64) error {
-    args := make()
-    ScriptBlobMapUpdate.Do(conn,)
+func (b *BlobMap) update(conn redis.Conn, raw interface{}, version int64, op int) error {
+    args := make([]interface{}, 0, len(kv) * 2 + 2)
+    args = append(args, b.prefix + "{" + tag + "}", op, version)
+    if op == OP_SET || OP_SET_DEFAULT {
+        kv, ok := raw.(map[string][]byte)
+        if !ok {
+            return ErrInvalidParams
+        }
+        for k, v := range kv {
+            args = append(args, k, v)
+        }
+    } else if op == OP_DEL {
+        keys, ok := raw.([]string)
+        if !ok {
+            return ErrInvalidParams
+        }
+        for key := range keys {
+            args = append(args, key)
+        }
+    } else {
+        return ErrInvalidWriteOperation
+    }
+    _, err := ScriptBlobMapUpdate.Do(conn, args...)
+    if err != nil {
+        return err
+    }
+    return nil
 }
 
 func (b *BlobMap) updatTimeout(conn redis.Conn) error {
     var err error
-    if b.timeout < 1 {
+    if b.Timeout < 1 {
         return nil
     }
 
-    if err = conn.Send('SETNX', b.prefix + "{" + tag + "}", b.timeout); err != nil {
+    if err = conn.Send('SETNX', b.prefix + "{" + tag + "}", b.Timeout); err != nil {
         return err
     }
-    if err = conn.Send('SETNX', b.prefix + "{" + tag + "}.d", b.timeout); err != nil {
+    if err = conn.Send('SETNX', b.prefix + "{" + tag + "}.d", b.Timeout); err != nil {
         return err
     }
     if err = conn.Flush(); err != nil {
@@ -283,6 +330,10 @@ func (b *BlobMap) updatTimeout(conn redis.Conn) error {
         }
     }
     return nil
+}
+
+func (b *BlobMap) Destroy() error {
+    return errors.New("Not supported")
 }
 
 func (b *BlobMap) newVersion(conn redis.Conn, allowDirty bool) (int64, error) {
@@ -322,7 +373,7 @@ func (b *BlobMap) Keys() ([]string, int64, error) {
         values = make([]string)
     }
     if version < 1 && persistEnabled {
-        var kv map[string]string
+        var kv map[string][]byte
         if kv, version, err = loadBlobs(conn, false); err != nil {
             return nil, 0, err
         }
@@ -334,7 +385,7 @@ func (b *BlobMap) Keys() ([]string, int64, error) {
     return values, version, nil
 }
 
-func (b *BlobMap) Gets(keys []string) ([]string, int64, error) {
+func (b *BlobMap) Gets(keys []string) ([][]byte, int64, error) {
     conn := b.RedisPool.Get()
     defer conn.Close()
 
@@ -347,7 +398,7 @@ func (b *BlobMap) Gets(keys []string) ([]string, int64, error) {
         values = make([]string, len(keys), len(keys))
     }
     if version < 1 && persistEnabled {
-        var kv map[string]string
+        var kv map[string][]byte
         if kv, version, err = loadBlobs(conn, false); err != nil {
             return nil, err
         }
@@ -364,7 +415,7 @@ func (b *BlobMap) Gets(keys []string) ([]string, int64, error) {
     return values, nil
 }
 
-func (b *BlobMap) Sets(kv map[string]string) (int64, error) {
+func (b *BlobMap) writeOp(kvRaw interface{}, op int) (int64, error) {
     conn := b.RedisPool.Get()
     defer conn.Close()
 
@@ -374,17 +425,51 @@ func (b *BlobMap) Sets(kv map[string]string) (int64, error) {
         return version, err
     }
     if persistEnabled {
-        if err = b.persist.Sets(b.tag, kv, version); err != nil {
+        switch op {
+        case OP_SET:
+            kv, ok := kvRaw.(map[string][]byte)
+            if !ok {
+                return version, ErrInvalidParams
+            }
+            err = b.persist.Sets(b.tag, kv, version)
+        case OP_SET_DEFAULT:
+            kv, ok := kvRaw.(map[string][]byte)
+            if !ok {
+                return version, ErrInvalidParams
+            }
+            err = b.persist.SetDefaults(b.tag, kv, version)
+        case OP_DEL:
+            v, ok := kvRaw.([]string)
+            if !ok {
+                return version, ErrInvalidParams
+            }
+            err = b.persist.Dels(b.tag, kv, version)
+        default:
+            return version,  ErrInvalidWriteOperation
+        }
+        if err != nil {
             return version, err
         }
         _, err = conn.Do("SET", b.persist + "{" + b.tag + "}.d", 1)
     } else {
-        err = b.update(kv, version)
+        err = b.update(conn, kv, version, true)
     }
+
     if err != nil {
         return version, err
     }
-
     b.updatTimeout(conn)
     return version, nil
+}
+
+func (b *BlobMap) SetDefaults(kv map[string][]byte) (int64, error) {
+    return b.writeOp(kv, OP_SET_DEFAULT)
+}
+
+func (b *BlobMap) Sets(kv map[string][]byte) (int64, error) {
+    return b.writeOp(kv, OP_SET)
+}
+
+func (b *BlobMap) Dels(keys []string) (int64, error) {
+    return b.writeOp(kv, OP_DEL)
 }
