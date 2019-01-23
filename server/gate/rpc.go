@@ -108,14 +108,14 @@ func (c *ServiceRPCClient) Close(err error) {
 }
 
 func (c *ServiceRPCClient) NamespaceAdd(ns []string) error {
-	var reply proto.Dummy
+	var reply string
 
 	client := c.conn.Get()
 	if client == nil {
 		return rpc.ErrShutdown
 	}
 
-	err := client.Call("ServiceRPC.NamespaceAdd", &proto.NamespaceArguments{
+	err := client.Call("ServiceRPC.NamespaceAdd", &proto.NamespaceOperationArguments{
 		Names: ns,
 	}, &reply)
 
@@ -143,14 +143,14 @@ func (c *ServiceRPCClient) NamespaceList() ([]string, error) {
 }
 
 func (c *ServiceRPCClient) NamespaceRemove(ns []string) error {
-	var reply proto.Dummy
+	var reply string
 
 	client := c.conn.Get()
 	if client == nil {
 		return rpc.ErrShutdown
 	}
 
-	err := client.Call("ServiceRPC.NamespaceRemove", &proto.NamespaceArguments{
+	err := client.Call("ServiceRPC.NamespaceRemove", &proto.NamespaceOperationArguments{
 		Names: ns,
 	}, &reply)
 
@@ -159,4 +159,9 @@ func (c *ServiceRPCClient) NamespaceRemove(ns []string) error {
 	}
 
 	return err
+}
+
+
+func InitRPC() error {
+    return nil
 }

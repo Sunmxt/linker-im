@@ -20,9 +20,13 @@ type KeepaliveServiceInformation struct {
 }
 
 // Push message.
+type GroupedMessages struct {
+	Msgs    []Message
+    Users   []string
+}
 
 type MessagePushArguments struct {
-	Messages []RawMessage
+    MsgGups []GroupedMessages
 }
 
 type MessagePushResult struct {
@@ -32,11 +36,22 @@ type MessagePushResult struct {
 	}
 }
 
-// Namespace
-type NamespaceArguments struct {
+type Subscription struct {
+	Group    string
+	NotAfter int64
+}
+
+type SubscribeArguments struct {
+	User      string
+	Namespace string
+	Subs      []Subscription
+}
+
+type NamespaceOperationArguments struct {
 	Names []string
 }
 
 type NamespaceListReply struct {
-	Names []string
+	Names  []string
+	ErrMsg string
 }
