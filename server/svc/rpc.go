@@ -30,6 +30,10 @@ func (svc ServiceRPC) Push(msg *proto.MessagePushArguments, reply *proto.Message
 	return fmt.Errorf("Message pushing not avaliable.")
 }
 
+func (svc ServiceRPC) Subscribe(args *proto.SubscribeArguments, reply *string) error {
+	return nil
+}
+
 func (svc ServiceRPC) logError(err error) {
 	if err == nil {
 		return
@@ -42,30 +46,71 @@ func (svc ServiceRPC) logError(err error) {
 	}
 }
 
-// Append session namespace.
-func (svc ServiceRPC) NamespaceAdd(args *proto.NamespaceArguments, reply *proto.Dummy) error {
-	var res interface{}
-	var err error
-
+func (svc ServiceRPC) NamespaceAdd(args *proto.NamespaceOperationArguments, reply *string) error {
+	if len(args.Names) < 1 {
+		return nil
+	}
+	model, err := svc.getModel()
 	defer func() {
 		svc.logError(err)
 	}()
-
-	res, err = svc.getResource("namespace", nil)
 	if err != nil {
 		return err
 	}
 
-	sessionNamespace, ok := res.(*SessionNamespace)
-	if !ok {
-		return errors.New("Resource \"namespace\" has invalid type.")
+	meta := NewDefaultNamespaceMetadata()
+	mapMeta := make(map[string]*NamespaceMetadata, len(args.Names))
+	for _, ns := range args.Names {
+		mapMeta[ns] = meta
 	}
-
-	if err = sessionNamespace.Append(args.Names); err != nil {
+	if err = model.SetNamespaceMetadata(mapMeta, true); err != nil {
 		return err
 	}
-
 	return nil
+}
+
+func (svc ServiceRPC) NamespaceRemove(args *proto.NamespaceOperationArguments, reply *string) error {
+	if len(args.Names) < 1 {
+		return nil
+	}
+	model, err := svc.getModel()
+	defer func() {
+		svc.logError(err)
+	}()
+	if err != nil {
+		return err
+	}
+	if err = model.DeleteNamespacesMetadata(args.Names); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (svc ServiceRPC) NamespaceList(args *proto.Dummy, reply *proto.NamespaceListReply) error {
+	model, err := svc.getModel()
+	defer func() {
+		svc.logError(err)
+	}()
+	if err != nil {
+		return err
+	}
+	if reply.Names, err = model.ListNamespace(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (svc ServiceRPC) getModel() (*Model, error) {
+	res, err := svc.getResource("model", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	model, ok := res.(*Model)
+	if !ok {
+		return nil, errors.New("Resource \"model\" has invalid type.")
+	}
+	return model, nil
 }
 
 func (svc ServiceRPC) getResource(name string, credentials map[string]string) (interface{}, error) {
@@ -79,57 +124,6 @@ func (svc ServiceRPC) getResource(name string, credentials map[string]string) (i
 		}
 	}
 	return res, err
-}
-
-func (svc ServiceRPC) NamespaceList(args *proto.Dummy, reply *proto.NamespaceListReply) error {
-	var res interface{}
-	var err error
-
-	defer func() {
-		svc.logError(err)
-	}()
-
-	res, err = svc.getResource("namespace", nil)
-	if err != nil {
-		return err
-	}
-
-	sessionNamespace, ok := res.(*SessionNamespace)
-	if !ok {
-		return errors.New("Resource \"namespace\" has invalid type.")
-	}
-
-	reply.Names, err = sessionNamespace.List()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (svc ServiceRPC) NamespaceRemove(args *proto.NamespaceArguments, reply *proto.Dummy) error {
-	var res interface{}
-	var err error
-
-	defer func() {
-		svc.logError(err)
-	}()
-
-	res, err = svc.getResource("namespace", nil)
-	if err != nil {
-		return err
-	}
-
-	sessionNamespace, ok := res.(*SessionNamespace)
-	if !ok {
-		return errors.New("Resource \"namespace\" has invalid type.")
-	}
-
-	if err = sessionNamespace.Remove(args.Names); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func ServeRPC() error {

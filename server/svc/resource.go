@@ -16,7 +16,7 @@ func init() {
 
 func RegisterResources() error {
 	// Redis
-	log.Infof0("Register resource \"redis\"")
+	log.Info0("Register resource \"redis\"")
 	redisPool := &redis.Pool{
 		Dial: func() (redis.Conn, error) {
 			return redis.Dial("tcp", Config.RedisEndpoint.AuthorityString())
@@ -31,11 +31,11 @@ func RegisterResources() error {
 		log.Infof0("Resource \"redis\" register failure. (%v)", err.Error())
 	}
 
-	// namespace
-	log.Infof0("Register resource \"namespace\"")
-	sessionNamespace := NewSessionNamespace(redisPool, Config.RedisPrefix.Value, Config.CacheTimeout.Value, nil)
-	if err := resource.Registry.Register("namespace", sessionNamespace); err != nil {
-		log.Infof0("Resource \"namespace\" register failure. (%v)", err.Error())
+	// model
+	log.Info0("Register resource \"model\"")
+	model := NewModel(redisPool, Config.RedisPrefix.Value)
+	if err := resource.Registry.Register("model", model); err != nil {
+		log.Infof0("Resource \"model\" register failure. (%v)", err.Error())
 		return err
 	}
 

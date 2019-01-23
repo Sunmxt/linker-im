@@ -3,16 +3,13 @@ package svc
 import (
 	"errors"
 	ilog "github.com/Sunmxt/linker-im/log"
-    guuid "github.com/satori/go.uuid"
-    "github.com/Sunmxt/linker-im/proto"
-    "sync"
-    "time"
-    "strings"
+	"github.com/gomodule/redigo/redis"
+	"sync"
+	"time"
 )
 
 var ErrNamespaceMissing = errors.New("Namespace missing.")
 var ErrInvalidNamespaceName = errors.New("Invalid namespace name.")
-
 
 func VaildNamespaceName(name string) bool {
 	for _, runeValue := range name {
@@ -24,251 +21,277 @@ func VaildNamespaceName(name string) bool {
 	return true
 }
 
-// Optimize clean idle blobmap from pool.
-func (m *Model) Optimize(before time.Time) {
-    m.Map.Range(func (key, value interface{}) bool {
-        ref, ok := value.(*ModelBlobMapReference)
-        if !ok || ref.LastAccess.Before(before) {
-            m.Map.Delete(key)
-        }
-    })
-}
-
 type Model struct {
-    blobMapPool  sync.Map
-    Pool         *redis.Pool
-    Log          *ilog.Logger
+	blobMapPool sync.Map
+	Pool        *redis.Pool
+	Log         *ilog.Logger
+	Prefix      string
 }
 
 type ModelBlobMapReference struct {
-    Map *BlobMap
-    LastAccess time.Time
+	Map        *BlobMap
+	LastAccess time.Time
+}
+
+func NewModel(pool *redis.Pool, prefix string) *Model {
+	model := &Model{
+		Pool:   pool,
+		Log:    ilog.NewLogger(),
+		Prefix: prefix,
+	}
+	model.Log.Fields["entity"] = "model"
+	return model
+}
+
+// Optimize clean idle blobmap from pool.
+func (m *Model) Optimize(before time.Time) {
+	m.blobMapPool.Range(func(key, value interface{}) bool {
+		ref, ok := value.(*ModelBlobMapReference)
+		if !ok || ref.LastAccess.Before(before) {
+			m.blobMapPool.Delete(key)
+		}
+		return true
+	})
 }
 
 func (m *Model) Subscribe(namespace, group string, users []string) error {
-    bm, err := m.GetBlobMap(b.prefix + "{group." + namespace + "." + group + "}")
-    if err != nil {
-        return err
-    }
-    binParam := string(NewDefaultSessionMetadata().Serialize())
-    kv := make(map[string]string, len(user))
-    for user := range users {
-        kv[user] = binParam
-    }
-    if _, err = bm.SetDefaults(kv); err != nil {
-        return err
-    }
-    // Update mapping.
-    return nil
+	bm := m.GetBlobMap("group."+namespace+"."+group, 0, nil)
+	binParam := NewSubscriptionMetadata().Serialize()
+	kv := make(map[string][]byte, len(users))
+	for _, user := range users {
+		kv[user] = binParam
+	}
+	if _, err := bm.SetDefaults(kv); err != nil {
+		return err
+	}
+	// Update mapping.
+	return nil
 }
 
-func (m *Model) setMetadata(key string, metas map[string]SerizliableEntity, isDefault bool) error {
-    var version int64
+func (m *Model) setMetadata(key string, metas map[string][]byte, isDefault bool) error {
+	var version int64
+	var err error
 
-    bm, err := m.GetBlobMap(key)
-    if err != nil {
-        return err
-    }
+	bm := m.GetBlobMap(key, 0, nil)
+	if isDefault {
+		version, err = bm.SetDefaults(metas)
+	} else {
+		version, err = bm.Sets(metas)
+	}
+	if err != nil {
+		m.Log.Error("Failed to set default metadata for " + "\"" + key + "\"" + err.Error())
+		return err
+	}
+	m.Log.Infof1("Set default metadata for key \"%v\". (version = %v)", key, version)
 
-    binData := make(map[string][]byte, len(metas))
-    for k, v := range metas {
-        binData[k] = v.Serialize()
-    }
-
-    if isDefault {
-        version, err = bm.SetDefaults(binData)
-    } else {
-        version, err = bm.Sets(binData)
-    }
-    if err != nil {
-        m.Log.Error("Failed to set default metadata for " + "\"" + key + "\"" + err.Error())
-        return err
-    }
-    m.Log.Infof1("Set default metadata for key \"%v\". (version = %v)", key, version)
-
-    return nil
+	return nil
 }
 
 func (m *Model) delMetadata(key string, metas []string) error {
-    var version int64
+	bm := m.GetBlobMap(key, 0, nil)
+	version, err := bm.Dels(metas)
 
-    bm, err := m.GetBlobMap(key)
-    if err != nil {
-        return err
-    }
-    version, err = bm.Dels(metas)
+	if err != nil {
+		m.Log.Error("Failed to delete metadata for " + "\"" + key + "\": " + err.Error())
+		return err
+	}
+	m.Log.Infof1("Delete metadata for key \"%v\". (version = %v)", key, version)
 
-    if err != nil {
-        m.Log.Error("Failed to delete metadata for " + "\"" + key + "\"" + err.Error())
-        return err
-    }
-    m.Log.Infof1("Delete metadata for key \"%v\". (version = %v)", key, version)
+	return nil
+}
 
-    return nil
+func (m *Model) listMetadata(key string) ([]string, error) {
+	bm := m.GetBlobMap(key, 0, nil)
+	keys, version, err := bm.Keys()
+	if err != nil {
+		m.Log.Error("Failed to list metadata for " + "\"" + key + "\": " + err.Error())
+		return nil, err
+	}
+	m.Log.Infof1("List metadata for key \"%v\". (version = %v)", key, version)
+
+	return keys, nil
 }
 
 func (m *Model) getMetadata(key string, metas map[string][]byte) error {
-    var version int64
+	bm := m.GetBlobMap(key, 0, nil)
+	keys := make([]string, 0, len(metas))
+	for k, _ := range metas {
+		keys = append(keys, k)
+	}
+	binarys, version, err := bm.Gets(keys)
+	if err != nil {
+		m.Log.Error("Failed to get metadata for " + "\"" + key + "\": " + err.Error())
+		return err
+	}
+	m.Log.Infof1("Get metadata for key \"%v\". (version = %v)", key, version)
+	for idx, key := range keys {
+		bin := binarys[idx]
+		if bin != nil {
+			metas[key] = bin
+		}
+	}
 
-    bm, err := m.GetBlobMap(key)
-    if err != nil {
-        return err
-    }
-
-    keys := make([]string, 0, len(metas))
-    for k, _ := range metas {
-        keys = append(keys, k)
-    }
-    binarys, version, err := bm.Gets(keys)
-    if err != nil {
-        m.Log.Error("Failed to get metadata for " + "\"" + key + "\"" + err.Error())
-        return err
-    }
-    m.Log.Infof1("Get metadata for key \"%v\". (version = %v)", key, version)
-    for idx, key := range keys {
-        bin := binarys[idx]
-        if bin != nil {
-            metas[key] = bin
-        }
-    }
-
-    return nil
+	return nil
 }
 
 func (m *Model) GetNamespaceMetadata(namespaces []string) ([]*NamespaceMetadata, error) {
-    var err error
+	var err error
 
-    kv := make(map[string][]byte, len(namespaces))
-    for key := range namespaces {
-        kv[key] = nil
-    }
-    if err = m.getMetadata(s.prefix + "{namespaces}", kv); err != nil {
-        return nil, err
-    }
-    metas := make([]*NamespaceMetadata, len(namespaces))
-    for idx, key := range namespaces {
-        bin, ok := kv[key]
-        if ok && bin != nil {
-            meta := &NamespaceMetadata{}
-            if err = meta.Unserialize(bin); err != nil {
-                m.Log.Fatal("Broken metadata of namespace \"" + key + "\":" + err.Error())
-            } else {
-                metas[idx] = meta
-            }
-        }
-    }
+	kv := make(map[string][]byte, len(namespaces))
+	for _, key := range namespaces {
+		kv[key] = nil
+	}
+	if err = m.getMetadata("namespaces", kv); err != nil {
+		return nil, err
+	}
+	metas := make([]*NamespaceMetadata, len(namespaces))
+	for idx, key := range namespaces {
+		bin, ok := kv[key]
+		if ok && bin != nil {
+			meta := &NamespaceMetadata{}
+			if err = meta.Unserialize(bin); err != nil {
+				m.Log.Fatal("Broken metadata of namespace \"" + key + "\":" + err.Error())
+			} else {
+				metas[idx] = meta
+			}
+		}
+	}
 
-    return metas, nil
+	return metas, nil
 }
 
 func (m *Model) GetGroupMetadata(namespace string, groups []string) ([]*GroupMetadata, error) {
-    var err error
+	var err error
 
-    kv := make(map[string][]byte, len(groups))
-    for key := range groups {
-        kv[key] = nil
-    }
-    if err = m.getMetadata(s.prefix + "{groups." + namespace + "}", kv); err != nil {
-        return nil, err
-    }
-    metas := make([]*GroupMetadata, len(groups))
-    for idx, key := range groups {
-        bin, ok := kv[key]
-        if ok && bin != nil {
-            meta := &GroupMetadata{}
-            if err = meta.Unserialize(bin); err != nil {
-                m.Log.Fatal("Broken metadata of group \"" + key + "\" in namespace \"" + namespace + "\"" + ":" + err.Error())
-            } else {
-                metas[idx] = meta
-            }
-        }
-    }
+	kv := make(map[string][]byte, len(groups))
+	for _, key := range groups {
+		kv[key] = nil
+	}
+	if err = m.getMetadata("groups."+namespace, kv); err != nil {
+		return nil, err
+	}
+	metas := make([]*GroupMetadata, len(groups))
+	for idx, key := range groups {
+		bin, ok := kv[key]
+		if ok && bin != nil {
+			meta := &GroupMetadata{}
+			if err = meta.Unserialize(bin); err != nil {
+				m.Log.Fatal("Broken metadata of group \"" + key + "\" in namespace \"" + namespace + "\"" + ":" + err.Error())
+			} else {
+				metas[idx] = meta
+			}
+		}
+	}
 
-    return metas, nil
+	return metas, nil
 }
 
 func (m *Model) GetUserMetadata(namespace string, users []string) ([]*UserMetadata, error) {
-    var err error
+	var err error
 
-    kv := make(map[string][]byte, len(groups))
-    for key := range users {
-        kv[key] = nil
-    }
-    if err = m.getMetadata(s.prefix + "{users." + namespace + "}", kv); err != nil {
-        return nil, err
-    }
-    metas := make([]*UserMetadata, len(users))
-    for idx, key := range users {
-        bin, ok := kv[key]
-        if ok && bin != nil {
-            meta := &UserMetadata{}
-            if err = meta.Unserialize(bin); err != nil {
-                m.Log.Fatal("Broken metadata of user \"" + key + "\" in namespace \"" + namespace + "\"" + ":" + err.Error())
-            } else {
-                metas[idx] = meta
-            }
-        }
-    }
+	kv := make(map[string][]byte, len(users))
+	for _, key := range users {
+		kv[key] = nil
+	}
+	if err = m.getMetadata("users."+namespace, kv); err != nil {
+		return nil, err
+	}
+	metas := make([]*UserMetadata, len(users))
+	for idx, key := range users {
+		bin, ok := kv[key]
+		if ok && bin != nil {
+			meta := &UserMetadata{}
+			if err = meta.Unserialize(bin); err != nil {
+				m.Log.Fatal("Broken metadata of user \"" + key + "\" in namespace \"" + namespace + "\"" + ":" + err.Error())
+			} else {
+				metas[idx] = meta
+			}
+		}
+	}
 
-    return metas, nil
+	return metas, nil
 }
 
-func (m *Model) SetNamespacesMetadata(namespaces map[string]*NamespaceMetadata, isDefault bool) error {
-    return m.setMetadata(s.prefix + "{namespaces}", metas, isDefault)
+func (m *Model) SetNamespaceMetadata(metas map[string]*NamespaceMetadata, isDefault bool) error {
+	bins := make(map[string][]byte, len(metas))
+	for k, v := range metas {
+		bins[k] = v.Serialize()
+	}
+	return m.setMetadata("namespaces", bins, isDefault)
 }
 
 func (m *Model) SetGroupMetadata(namespaces string, metas map[string]*GroupMetadata, isDefault bool) error {
-    return m.setMetadata(s.prefix + "{groups." + namespaces + "}", metas, isDefault)
+	bins := make(map[string][]byte, len(metas))
+	for k, v := range metas {
+		bins[k] = v.Serialize()
+	}
+	return m.setMetadata("groups."+namespaces, bins, isDefault)
 }
 
 func (m *Model) SetUserMetadata(namespaces string, metas map[string]*UserMetadata, isDefault bool) error {
-    return m.setMetadata(s.prefix + "{users." + namespaces + "}", metas, isDefault)
+	bins := make(map[string][]byte, len(metas))
+	for k, v := range metas {
+		bins[k] = v.Serialize()
+	}
+	return m.setMetadata("users."+namespaces, bins, isDefault)
 }
 
 func (m *Model) DeleteNamespacesMetadata(namespaces []string) error {
-    return m.delMetadata(s.predix + "{namespaces}", namespaces)
+	return m.delMetadata("namespaces", namespaces)
 }
 
 func (m *Model) DeleteGroupMetadata(namespace string, groups []string) error {
-    return m.delMetadata(s.predix + "{groups." + namespace + "}", namespaces)
+	return m.delMetadata("groups."+namespace, groups)
 }
 
 func (m *Model) DeleteUserMetadata(namespace string, users []string) error {
-    return m.delMetadata(s.predix + "{users." + namespace + "}", namespaces)
+	return m.delMetadata("users."+namespace, users)
+}
+
+func (m *Model) ListNamespace() ([]string, error) {
+	return m.listMetadata("namespaces")
+}
+
+func (m *Model) ListUser(namespace string) ([]string, error) {
+	return m.listMetadata("users." + namespace)
+}
+
+func (m *Model) ListGroup(namespace string) ([]string, error) {
+	return m.listMetadata("groups." + namespace)
 }
 
 func (m *Model) GetBlobMap(key string, timeout int, primitive BlobMapPersistPrimitive) *BlobMap {
-    var ref *BlobMapReference
+	var ref *ModelBlobMapReference
 
-    newBlobMap := func() *BlobMap {
-        if ref == nil {
-            ref = &ModelBlobMapReference{
-                Map: NewBlobMap(s.Pool, m.Prefix, key, timeout, primitive)
-            }
-            m.Log.Infof1("Add new blobmap \"" + key + "\"to pool.")
-        }
-        return ref
-    }
+	newBlobMap := func() *ModelBlobMapReference {
+		if ref == nil {
+			ref = &ModelBlobMapReference{
+				Map: NewBlobMap(m.Pool, m.Prefix, key, timeout, primitive),
+			}
+			m.Log.Infof1("Add new blobmap \"" + key + "\" to pool.")
+		}
+		return ref
+	}
 
-    for ref == nil {
-        raw, loaded := m.blobMapPool.Load(key)
+	for ref == nil {
+		raw, loaded := m.blobMapPool.Load(key)
 
-        if !loaded {
-            raw, loaded = m.blobMapPool.LoadOrStore(key, newBlobMap())
-            if !loaded { // Stored by me.
-                break
-            }
-        }
+		if !loaded {
+			raw, loaded = m.blobMapPool.LoadOrStore(key, newBlobMap())
+			if !loaded { // Stored by me.
+				break
+			}
+		}
 
-        ref, loaded = raw.(*BlobMap)
-        if !loaded { // Wrong type. Force to replace.
-            m.blobMapPool.Store(key, newBlobMap())
-        }
-        break
-    }
+		ref, loaded = raw.(*ModelBlobMapReference)
+		if !loaded { // Wrong type. Force to replace.
+			m.blobMapPool.Store(key, newBlobMap())
+		}
+		break
+	}
 
-    // update access time.
-    ref.LastAccess = time.Now()
+	// update access time.
+	ref.LastAccess = time.Now()
 
-    return ref.Map
+	return ref.Map
 }
