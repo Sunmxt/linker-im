@@ -33,9 +33,12 @@ type GatewayOptions struct {
 	KeepalivePeriod *cmdline.UintValue
 
 	// Timeslice length to aggregate messages.
-	// All messages received within the period will be grouped and sent in one response.
+	// All messages received within the period will be grouped and sent within one response.
 	// Timeslice will not be longer then timeout specified by client.
-	MessageAggregateTimeslice *cmdline.UintValue
+	MessageBulkTime *cmdline.UintValue
+
+    // Active time.
+    ActiveTimeout *cmdline.UintValue
 
 	// Debug mode
 	// More information will be reported to clients when debug mode is on.
@@ -76,6 +79,9 @@ func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfig
 	if options.RedisPrefix.IsDefault {
 		options.RedisPrefix.Value = cfg.RedisPrefix
 	}
+    if options.ActiveTimeout.IsDefault {
+        options.ActiveTimeout.Value = cfg.HTTPConfig.ActiveTime
+    }
 	return nil
 }
 
@@ -132,7 +138,8 @@ func configureParse() (*GatewayOptions, error) {
 		RedisEndpoint:             redis_endpoint,
 		RedisPrefix:               cmdline.NewStringValueDefault("linker"),
 		ServiceEndpoints:          serviceEndpoints,
-		MessageAggregateTimeslice: cmdline.NewUintValueDefault(50),
+		MessageBulkTime: cmdline.NewUintValueDefault(50),
+        ActiveTimeout:             cmdline.NewUintValueDefault(5000),
 		DebugMode:                 cmdline.NewBoolValueDefault(false),
 	}
 
@@ -144,6 +151,7 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.RedisPrefix, "redis-prefix", "Redis cache key prefix.")
 	flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
 	flag.Var(options.KeepalivePeriod, "keepalive-period", "Keepalive period. Can not be 0.")
+    flag.Var(options.ActiveTimeout, "active-timeout", "")
 	flag.Var(options.DebugMode, "debug", "Enable debug mode.")
 
 	flag.Parse()
@@ -153,7 +161,7 @@ func configureParse() (*GatewayOptions, error) {
 		var config_content []byte
 		external_config := &config.GatewayConfigure{
 			LogLevel:                  0,
-			MessageAggregateTimeslice: 50,
+			MessageBulkTime: 50,
 			RedisEndpoint:             "",
 			RedisPrefix:               "linker",
 			Debug:                     false,
@@ -163,6 +171,7 @@ func configureParse() (*GatewayOptions, error) {
 			},
 			HTTPConfig: config.HTTPAPIConfigure{
 				Endpoint: "0.0.0.0:12360",
+                ActiveTime: 5000,
 			},
 		}
 
@@ -184,5 +193,11 @@ func configureParse() (*GatewayOptions, error) {
 	if err = options.SetDefault(); err != nil {
 		return nil, err
 	}
+
+    log.Info0("Configurations:")
+    flag.VisitAll(func (fl *flag.Flag) {
+        log.Info0("-" + fl.Name + "=" + fl.Value.String())
+    })
+
 	return options, err
 }

@@ -18,6 +18,12 @@ type ConnectMetadata struct {
     Timeout     int
 }
 
+type ActiveMetadata struct { 
+    Proto       uint
+    Remote      string
+    Key         string
+}
+
 const (
     CONN_OPEN   = iota
     CONN_CONNECTED
@@ -57,7 +63,38 @@ func (c *Connection) consume(buf []proto.Message, max int) ([]proto.Message, int
 func (c *Connection) wait(wake chan struct{}) {
     c.signal.Wait()
     c.WriteLock.Unlock()
-    wake <- chan struct{}{}
+    wake <- struct{}{}
+}
+
+func (c *Connection) Push(msgs []proto.Message) (uint, uint) {
+    if len(msgs) < 1 {
+        return 0
+    }
+
+    var idx, overc, readLocked uint
+    c.WriteLock.Lock()
+    defer c.WriteLock.Unlock()
+
+    for idx < len(msgs) {
+        override, err := c.Buf.Write(&msgs, readLocked > 0)
+        if err == ErrRingFull {
+            c.ReadLock.Lock()
+            readLocked = 1
+            continue
+        }
+        if readLocked > 0 {
+            overc ++
+        }
+        idx++
+    }
+    if readLocked > 0 {
+        c.ReadLock.Unlock()
+    }
+    if c.Buf.Count() > c.bulk {
+        c.signal.Broadcast()
+    }
+
+    return idx, overc
 }
 
 func (c *Connection) Receive(buf []proto.Message, max int, bulk int, timeout int) uint {
