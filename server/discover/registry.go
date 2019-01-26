@@ -5,6 +5,7 @@ type Registry interface {
     Node(name string) (*Node, error)
     Poll() (bool, error)
     Close()
+    Publish(*Node) error
 }
 
 

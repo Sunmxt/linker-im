@@ -11,6 +11,7 @@ type RedisRegistry struct {
 
     service sync.Map
     nodes   map[string]*Node
+    publish map[string]*Node
 }
 
 func NewRedisPoolRegistry(pool *redis.Pool, prefix string) (Registry, error) {
@@ -89,11 +90,23 @@ func (r *RedisRegistry) Service(name string) (Service, error) {
     return svc, nil
 }
 
+func (r *RedisServiceEntry) redisConnect() (redis.Conn, error) {
+    pool := r.redis
+    if pool == nil {
+        return nil, ErrClosed
+    }
+    return pool.Get(), nil
+}
+
 func (r *RedisRegistry) Poll() (bool, error) {
-    conn := redis.Get()
+    conn, err := r.redisConnect()
+    if err != nil {
+        return false, err
+    }
     defer conn.Close()
 
-    svcs, err := redis.Strings(conn.Do("SMEMBERS", r.prefix + "{dig-services}"), nil)
+    var svcs []string
+    svcs, err = redis.Strings(conn.Do("SMEMBERS", r.prefix + "{dig-services}"), nil)
     if err != nil {
         return false, err
     }
@@ -116,7 +129,12 @@ func (r *RedisRegistry) Poll() (bool, error) {
         }
     }
 
-    err = r.resolveNodes(conn)
+    if err = r.resolveNodes(conn); err != nil {
+        return changed, err
+    }
+    
+    err = r.publishNodes(conn)
+
     return changed, err
 }
 
@@ -137,6 +155,14 @@ func (r *RedisRegistry) Node(name string) *Node {
     }
 
     return node
+}
+
+func (r *RedisRegistry) Publish(node *Node) error {
+    if node == nil {
+        return ErrInvalidArguments
+    }
+    r.publish[node] = node
+    return nil
 }
 
 // Visit all nodes focused on.
@@ -183,7 +209,7 @@ func (r *RedisRegistry) resolveNodes(conn redis.Conn) error {
     focusNames := make([]string, 0) // TODO: optimize.
     focusNodes := make([]*Node, 0)
     r.VisitNodes(func (name string, node *Node) bool {
-        if err = conn.Send("HGETALL", r.prefix + "{dig-node-\"" + name + "\"}"); err != nil {
+        if err = conn.Send("HGETALL", r.prefix + "{dig-node-" + name + "}"); err != nil {
             return false
         }
         focusNames = append(focusNames, name)
@@ -212,13 +238,38 @@ func (r *RedisRegistry) resolveNodes(conn redis.Conn) error {
     return nil
 }
 
-func (r *RedisRegistry) Close() {
+func (r *RedisRegistry) publishNodes(conn redis.Conn) error {
+    var count uint = 0
+    var err error
+    for name, node := range r.publish {
+        if node != nil && node.Metadata != nil {
+            for k, v := node.Metadata {
+                if err = conn.Send("HSET", r.prefix + "{dig-node-" + name + "}", k, v); err != nil {
+                    return err
+                }
+                count ++
+            }
+        }
+    }
+    if err = conn.Flush(); err != nil {
+        return err
+    }
+    for count > 0 {
+        if _, err = conn.Receive(); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+func (r *RedisRegistry) Close()
+    r.redis = nil
 }
 
 type RedisServiceEntry struct {
     name        string
     nodes       map[string]struct{}
-    publish     map[string]*Node
+    publish     map[string]uint
     registry    *RedisRegistry
 
     lock        sync.Mutex
@@ -252,23 +303,55 @@ func (s *RedisServiceEntry) poll(conn redis.Conn) (bool, error) {
     }
     focusNodes := make([]string, 0, len(s.nodes))
     for name, _ := range s.nodes {
-        err = conn.Send("GET", r.prefix + "{dig-service-" + s.name + "-node-" + name "-present}")
+        err = conn.Send("GET", r.prefix + "{dig-service-" + s.name + "-node-" + name + "-present}")
         if err != nil {
             return updated, err
         }
         focusNodes = append(focusNodes, name)
     }
+    if err = conn.Flush(); err != nil {
+        return updated, err
+    }
+    count := 0
     for idx := range focusNodes {
         present, err := redis.Int64(conn.Receive())
         if err != nil {
             if err == redis.ErrNil {
                 delete(s.nodes, focusNodes[idx])
+                conn.Send("SREM", r.prefix + "{dig-service-" + s.name + "-node}", focusNodes[idx])
                 updated = true
             } else {
                 return updated, err
             }
         }
     }
+    if err = conn.Flush(); err != nil {
+        return updated, err
+    }
+    for count > 0 {
+        if _, err = conn.Receive(); err != nil {
+            return update, err
+        }
+        count--
+    }
+    
+    // Publish
+    focusNodes = focusNodes[0:0]
+    for name, timeout := range s.publish {
+        focus = append(focusNodes, name)
+        conn.Send("SET", r.prefix + "{dig-service-" + s.name + "-node-" + name + "-present}", "ex", timeout)
+        conn.Send("SADD", r.prefix + "{dig-service-" + s.name + "-node}", name)
+    }
+    if err = conn.Flush(); err != nil {
+        return updated, err
+    }
+    for idx := range focusNodes {
+        _, err = conn.Recevice()   
+        if _, err = conn.Receive(); err != nil {
+            return update, err
+        }
+    }
+
     if changed {
         s.sig.Broadcast()
     }
@@ -291,5 +374,9 @@ func (s *RedisServiceEntry) Watch() error {
 }
 
 func (s *RedisServiceEntry) Publish(node *Node) error {
-    s.Registry.redisConnect()
+    if node == nil {
+        return ErrInvalidArguments
+    }
+    s.publish[node.Name] = node.Timeout
+    return s.registry.Publish(node)
 }
