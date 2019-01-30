@@ -1,7 +1,7 @@
-package discover
+package dig
 
 import (
-    "errors"
+	"errors"
 )
 
 var ErrDriverExist = errors.New("Driver exists.")
