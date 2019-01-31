@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	config "github.com/Sunmxt/linker-im/config"
@@ -18,6 +19,12 @@ type GatewayOptions struct {
 
 	// Endpoint to bind and serve HTTP API.
 	APIEndpoint *cmdline.NetEndpointValue
+
+	// RPC Bind endpoint.
+	RPCEndpoint *cmdline.NetEndpointValue
+
+	// RPC Publish endpoint.
+	RPCPublishEndpoint *cmdline.NetEndpointValue
 
 	// Redis endpoint.
 	RedisEndpoint *cmdline.NetEndpointValue
@@ -37,8 +44,8 @@ type GatewayOptions struct {
 	// Timeslice will not be longer then timeout specified by client.
 	MessageBulkTime *cmdline.UintValue
 
-    // Active time.
-    ActiveTimeout *cmdline.UintValue
+	// Active time.
+	ActiveTimeout *cmdline.UintValue
 
 	// Debug mode
 	// More information will be reported to clients when debug mode is on.
@@ -79,24 +86,33 @@ func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfig
 	if options.RedisPrefix.IsDefault {
 		options.RedisPrefix.Value = cfg.RedisPrefix
 	}
-    if options.ActiveTimeout.IsDefault {
-        options.ActiveTimeout.Value = cfg.HTTPConfig.ActiveTime
-    }
+	if options.ActiveTimeout.IsDefault {
+		options.ActiveTimeout.Value = cfg.HTTPConfig.ActiveTime
+	}
 	return nil
 }
 
 func (options *GatewayOptions) SetDefault() error {
 	if options.ServiceEndpoints.String() == "" {
-		return fmt.Errorf("No service node found. (See \"-service-endpoints\")")
+		return errors.New("No service node found. (See \"-service-endpoints\")")
 	}
 	if options.RedisEndpoint.Host == "" {
-		return fmt.Errorf("Redis endpoint hosts should not be empty. (See \"-redis-endpoint\")")
+		return errors.New("Redis endpoint hosts should not be empty. (See \"-redis-endpoint\")")
 	}
 	if !options.RedisEndpoint.HasPort {
-		return fmt.Errorf("Redis endpoint port should be specified. (See \"-redis-endpoint\")")
+		return errors.New("Redis endpoint port should be specified. (See \"-redis-endpoint\")")
 	}
 	if options.RedisEndpoint.Port == 0 || options.RedisEndpoint.Port > 0xFFFF {
 		return fmt.Errorf("Redis endpoint port should not be %v. (See \"-redis-endpoint\")", options.RedisEndpoint.Port)
+	}
+	if options.RPCPublishEndpoint.String() == "" {
+		return errors.New("Missing RPC publish address. (see \"-rpc-publish\")")
+	}
+	if options.RPCPublishEndpoint.Host == "localhost" || options.RPCPublishEndpoint.Host == "127.0.0.1" {
+		log.Warn("RPC publish a local address: " + options.RPCPublishEndpoint.String())
+	}
+	if options.RPCPublishEndpoint.Port == 0 || options.RPCPublishEndpoint.Port > 0xFFFF {
+		options.RPCPublishEndpoint.Port = options.RPCEndpoint.Port
 	}
 	if options.KeepalivePeriod.Value == 0 {
 		return fmt.Errorf("Keepalive period should not be %v. (See \"-keepalive-period\")", options.RedisEndpoint.Port)
@@ -109,7 +125,7 @@ func (options *GatewayOptions) SetDefault() error {
 
 func configureParse() (*GatewayOptions, error) {
 	var err error = nil
-	var api_endpoint, manage_endpoint, redis_endpoint *cmdline.NetEndpointValue
+	var api_endpoint, manage_endpoint, redis_endpoint, rpcBind, rpcPub *cmdline.NetEndpointValue
 	var serviceEndpoints *cmdline.NetEndpointSetValue
 
 	if manage_endpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp", "http", "https"}, "127.0.0.1:12361"); err != nil {
@@ -128,19 +144,29 @@ func configureParse() (*GatewayOptions, error) {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
 	}
+	if rpcBind, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "0.0.0.0:12362"); err != nil {
+		log.Panicf("Flag value creating failure: %v", err.Error())
+		return nil, err
+	}
+	if rpcPub, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "127.0.0.1"); err != nil {
+		log.Panicf("Flag value creating failure: %v", err.Error())
+		return nil, err
+	}
 
 	options := &GatewayOptions{
-		ExternalConfig:            cmdline.NewStringValue(),
-		LogLevel:                  cmdline.NewUintValueDefault(0),
-		KeepalivePeriod:           cmdline.NewUintValueDefault(10),
-		ManageEndpoint:            manage_endpoint,
-		APIEndpoint:               api_endpoint,
-		RedisEndpoint:             redis_endpoint,
-		RedisPrefix:               cmdline.NewStringValueDefault("linker"),
-		ServiceEndpoints:          serviceEndpoints,
-		MessageBulkTime: cmdline.NewUintValueDefault(50),
-        ActiveTimeout:             cmdline.NewUintValueDefault(5000),
-		DebugMode:                 cmdline.NewBoolValueDefault(false),
+		ExternalConfig:     cmdline.NewStringValue(),
+		LogLevel:           cmdline.NewUintValueDefault(0),
+		KeepalivePeriod:    cmdline.NewUintValueDefault(10),
+		ManageEndpoint:     manage_endpoint,
+		APIEndpoint:        api_endpoint,
+		RedisEndpoint:      redis_endpoint,
+		RedisPrefix:        cmdline.NewStringValueDefault("linker"),
+		ServiceEndpoints:   serviceEndpoints,
+		MessageBulkTime:    cmdline.NewUintValueDefault(50),
+		ActiveTimeout:      cmdline.NewUintValueDefault(5000),
+		DebugMode:          cmdline.NewBoolValueDefault(false),
+		RPCPublishEndpoint: rpcPub,
+		RPCEndpoint:        rpcBind,
 	}
 
 	flag.Var(options.ExternalConfig, "config", "Configure YAML.")
@@ -151,8 +177,10 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.RedisPrefix, "redis-prefix", "Redis cache key prefix.")
 	flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
 	flag.Var(options.KeepalivePeriod, "keepalive-period", "Keepalive period. Can not be 0.")
-    flag.Var(options.ActiveTimeout, "active-timeout", "")
+	flag.Var(options.ActiveTimeout, "active-timeout", "")
 	flag.Var(options.DebugMode, "debug", "Enable debug mode.")
+	flag.Var(options.RPCEndpoint, "rpc", "RPC endpoint.")
+	flag.Var(options.RPCPublishEndpoint, "rpc-publish", "RPC publish endpoint.")
 
 	flag.Parse()
 
@@ -160,18 +188,18 @@ func configureParse() (*GatewayOptions, error) {
 	if options.ExternalConfig.Value != "" {
 		var config_content []byte
 		external_config := &config.GatewayConfigure{
-			LogLevel:                  0,
+			LogLevel:        0,
 			MessageBulkTime: 50,
-			RedisEndpoint:             "",
-			RedisPrefix:               "linker",
-			Debug:                     false,
+			RedisEndpoint:   "",
+			RedisPrefix:     "linker",
+			Debug:           false,
 			SVCConfig: config.ServiceConnectionConfigure{
 				Endpoints:       make(map[string]string),
 				KeepalivePeriod: 10,
 			},
 			HTTPConfig: config.HTTPAPIConfigure{
-				Endpoint: "0.0.0.0:12360",
-                ActiveTime: 5000,
+				Endpoint:   "0.0.0.0:12360",
+				ActiveTime: 5000,
 			},
 		}
 
@@ -194,10 +222,10 @@ func configureParse() (*GatewayOptions, error) {
 		return nil, err
 	}
 
-    log.Info0("Configurations:")
-    flag.VisitAll(func (fl *flag.Flag) {
-        log.Info0("-" + fl.Name + "=" + fl.Value.String())
-    })
+	log.Info0("Configurations:")
+	flag.VisitAll(func(fl *flag.Flag) {
+		log.Info0("-" + fl.Name + "=" + fl.Value.String())
+	})
 
 	return options, err
 }

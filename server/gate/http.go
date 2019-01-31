@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
@@ -143,6 +144,8 @@ func (ctx *APIRequestContext) initializeContext() error {
 		return err
 	}
 
+	ctx.ParseNamespace()
+
 	return nil
 }
 
@@ -151,9 +154,7 @@ func (ctx *APIRequestContext) ParseTimeout() error {
 	if ok && len(timeouts) > 0 {
 		timeout, err := strconv.ParseUint(timeouts[0], 10, 32)
 		if err != nil {
-			ctx.Code = proto.INVALID_ARGUMENT
-			ctx.CodeMessage = err.Error()
-			ctx.Finalize()
+			ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
 			return err
 		}
 		ctx.EnableTimeout = true
@@ -184,14 +185,31 @@ func (ctx *APIRequestContext) EndRPC(err error) {
 	ctx.RPC = nil
 }
 
-func (ctx *APIRequestContext) ResponseWithList(list []interface{}) {
-	ctx.Data = nil
-	ctx.ListData = list
+func (ctx *APIRequestContext) ParseNamespace() {
+	raw, ok := ctx.Req.Form["ns"]
+	if ok && len(raw) > 0 {
+		ctx.Namespace = raw[0]
+	} else {
+		ctx.Namespace = ""
+	}
 }
 
-func (ctx *APIRequestContext) ResponseWithMap(mapping map[string]interface{}) {
+func (ctx *APIRequestContext) SetListResponse(list []interface{}) {
+	ctx.Data = nil
+	ctx.ListData = list
+	ctx.ResponseError(proto.SUCCEED, "")
+}
+
+func (ctx *APIRequestContext) SetMapResponse(mapping map[string]interface{}) {
 	ctx.Data = mapping
 	ctx.ListData = nil
+	ctx.ResponseError(proto.SUCCEED, "")
+}
+
+func (ctx *APIRequestContext) ResponseError(code uint32, msg string) {
+	ctx.Code = code
+	ctx.CodeMessage = msg
+	ctx.Finalize()
 }
 
 func (ctx *APIRequestContext) Finalize() {
@@ -261,10 +279,6 @@ func (ctx *APIRequestContext) Finalize() {
 }
 
 // API
-func Health(writer http.ResponseWriter, req *http.Request) {
-	io.WriteString(writer, "ok")
-}
-
 func ListResource(w http.ResponseWriter, req *http.Request) {
 	res := resource.Registry.ListResources()
 	data := make([]interface{}, 0, len(res))
@@ -298,8 +312,7 @@ func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 	for _, raw := range ctx.ListData {
 		ns, ok := raw.(string)
 		if !ok {
-			ctx.Code = proto.INVALID_ARGUMENT
-			ctx.CodeMessage = "Invalid arguments."
+			ctx.ResponseError(proto.INVALID_ARGUMENT, "")
 			return
 		}
 		namespaces = append(namespaces, ns)
@@ -316,26 +329,21 @@ func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 	case "DELETE":
 		err = rpcClient.NamespaceRemove(namespaces)
 	default:
-		ctx.Code = proto.INVALID_ARGUMENT
-		ctx.CodeMessage = "Invalid opertaion."
 		ctx.StatusCode = 400
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid operation")
 		return
 	}
 	if err != nil {
 		authErr, isAuthErr := err.(resource.ResourceAuthError)
 		if isAuthErr {
-			ctx.Code = proto.ACCESS_DEINED
-			ctx.CodeMessage = authErr.Error()
+			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
 		} else {
-			ctx.Code = proto.SERVER_INTERNAL_ERROR
-			ctx.CodeMessage = "(rpc return failure) " + err.Error()
+			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
 		}
 		return
 	}
 
-	ctx.ResponseWithList(nil)
-	ctx.Code = proto.SUCCEED
-	ctx.CodeMessage = ""
+	ctx.SetListResponse(nil)
 }
 
 func ListNamespace(w http.ResponseWriter, req *http.Request) {
@@ -358,11 +366,9 @@ func ListNamespace(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		authErr, isAuthErr := err.(resource.ResourceAuthError)
 		if isAuthErr {
-			ctx.Code = proto.ACCESS_DEINED
-			ctx.CodeMessage = authErr.Error()
+			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
 		} else {
-			ctx.Code = proto.SERVER_INTERNAL_ERROR
-			ctx.CodeMessage = "(rpc return failure) " + err.Error()
+			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
 		}
 		return
 	} else {
@@ -372,8 +378,7 @@ func ListNamespace(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	ctx.Code = proto.SUCCEED
-	ctx.CodeMessage = ""
+	ctx.ResponseError(proto.SUCCEED, "")
 }
 
 func GroupOperation(w http.ResponseWriter, req *http.Request) {
@@ -389,10 +394,99 @@ func ListUser(w http.ResponseWriter, req *http.Request) {
 func UserOperation(w http.ResponseWriter, req *http.Request) {
 }
 
+func PushMessage(w http.ResponseWriter, req *http.Request) {
+}
+
+func PullMessage(w http.ResponseWriter, req *http.Request) {
+	var (
+		enc, usr string
+		timeout  int
+		hub      *Hub
+		conn     *Connection
+		msg      []proto.Message
+	)
+
+	ctx, err := NewAPIMapRequestContext(w, req)
+	if err != nil {
+		return
+	}
+
+	var bulk int
+	if bulks, ok := ctx.Req.Form["bulk"]; ok && len(bulks) > 0 {
+		bulkv, err := strconv.ParseInt(bulks[0], 10, 32)
+		if err != nil {
+			ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
+			return
+		}
+		bulk = int(bulkv)
+	} else {
+		bulk = -1
+	}
+
+	raw, ok := ctx.Data["enc"]
+	if !ok {
+		enc = "txt"
+	} else {
+		enc, ok = raw.(string)
+		if !ok || (enc != "txt" && enc != "b64") {
+			ctx.ResponseError(proto.INVALID_ARGUMENT, "")
+			return
+		}
+	}
+
+	raw, ok = ctx.Data["usr"]
+	if !ok {
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "Missing user.")
+		return
+	}
+	usr, ok = raw.(string)
+	if !ok || usr == "" {
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "")
+	}
+
+	if hub, err = GetHub(); err != nil {
+		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, err.Error())
+		return
+	}
+
+	if ctx.EnableTimeout {
+		timeout = int(ctx.Timeout)
+	} else {
+		timeout = -1
+	}
+
+	if conn, err = hub.Connect(usr, ConnectMetadata{
+		Proto:   PROTO_HTTP,
+		Remote:  req.RemoteAddr,
+		Timeout: timeout,
+	}); err != nil {
+		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, err.Error())
+		return
+	}
+	if bulk < -1 {
+		msg = make([]proto.Message, 0, 1)
+	} else {
+		msg = make([]proto.Message, 0, bulk)
+	}
+
+	msg = conn.Receive(msg, bulk, bulk, timeout)
+	resp := make([]interface{}, 0, len(msg))
+	if enc == "b64" {
+		for idx := range msg {
+			msg[idx].Raw = base64.StdEncoding.EncodeToString([]byte(msg[idx].Raw))
+		}
+	}
+	for idx := range msg {
+		resp = append(resp, msg[idx])
+	}
+	ctx.SetListResponse(resp)
+	ctx.Finalize()
+}
+
 func RegisterHTTPAPI(mux *gmux.Router) error {
 	// Healthz
-	APILog.Info0("Register HTTP health check at \"/healthz\"")
-	mux.HandleFunc("/healthz", Health)
+	//APILog.Info0("Register HTTP health check at \"/healthz\"")
+	//mux.HandleFunc("/healthz", Health)
 
 	// Resource list.
 	APILog.Info0("Register HTTP Resource listing at \"/resources\"")
@@ -408,7 +502,8 @@ func RegisterHTTPAPI(mux *gmux.Router) error {
 	APILog.Info0("Register HTTP endpoint \"/user\"")
 	mux.HandleFunc("/user", ListUser).Methods("GET")
 	mux.HandleFunc("/user", UserOperation).Methods("POST", "DELETE")
-	//APILog.Info0("Register HTTP endpoint \"msg\"")
+	APILog.Info0("Register HTTP endpoint \"msg\"")
+	mux.HandleFunc("/msg", PullMessage).Methods("GET")
 
 	return nil
 }

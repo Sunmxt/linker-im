@@ -20,19 +20,20 @@ type KeepaliveServiceInformation struct {
 }
 
 // Push message.
-type GroupedMessages struct {
-	Msgs    []Message
-    Users   []string
+type MessageGroup struct {
+	Msgs  []Message
+	Users []string
 }
 
 type MessagePushArguments struct {
-    MsgGups []GroupedMessages
+	Gups []MessageGroup
 }
 
 type MessagePushResult struct {
 	Replies []struct {
-		Identifiers MessageIdentifier
-		Code        uint8
+		Timestamp uint64
+		Sequence  uint64
+		Code      uint8
 	}
 }
 

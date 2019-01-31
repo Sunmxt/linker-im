@@ -1,7 +1,6 @@
 package dig
 
 import (
-	//"fmt"
 	"github.com/gomodule/redigo/redis"
 	"sync"
 )

@@ -2,7 +2,6 @@ package proto
 
 import (
 	"fmt"
-	guuid "github.com/satori/go.uuid"
 )
 
 const (
@@ -43,19 +42,9 @@ type HTTPListResponse struct {
 type HTTPListRequest struct {
 	APIVersion uint32        `json:"ver"`
 	Arguments  []interface{} `json:"args"`
-	RequestID  guuid.UUID    `json:"-"`
 }
 
 type HTTPMapRequest struct {
 	APIVersion uint32                 `json:"ver"`
 	Arguments  map[string]interface{} `json:"args"`
-	RequestID  guuid.UUID             `json:"-"`
-}
-
-func (req *HTTPListRequest) Identifier() string {
-	return req.RequestID.String()
-}
-
-func (req *HTTPMapRequest) Identifier() string {
-	return req.RequestID.String()
 }
