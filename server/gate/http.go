@@ -223,7 +223,7 @@ func (ctx *APIRequestContext) Finalize() {
 		// Log error
 		ctx.Log.Error(ctx.CodeMessage)
 
-		if !Config.DebugMode.Value {
+		if !gate.config.DebugMode.Value {
 			// Mask error message.
 			ctx.CodeMessage = "Server raise an exception with ID \"" + ctx.RequestID.String() + "\""
 		} else {
@@ -401,7 +401,6 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 	var (
 		enc, usr string
 		timeout  int
-		hub      *Hub
 		conn     *Connection
 		msg      []proto.Message
 	)
@@ -444,18 +443,13 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		ctx.ResponseError(proto.INVALID_ARGUMENT, "")
 	}
 
-	if hub, err = GetHub(); err != nil {
-		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, err.Error())
-		return
-	}
-
 	if ctx.EnableTimeout {
 		timeout = int(ctx.Timeout)
 	} else {
 		timeout = -1
 	}
 
-	if conn, err = hub.Connect(usr, ConnectMetadata{
+	if conn, err = gate.Hub.Connect(usr, ConnectMetadata{
 		Proto:   PROTO_HTTP,
 		Remote:  req.RemoteAddr,
 		Timeout: timeout,
@@ -483,40 +477,41 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 	ctx.Finalize()
 }
 
-func RegisterHTTPAPI(mux *gmux.Router) error {
-	// Healthz
-	//APILog.Info0("Register HTTP health check at \"/healthz\"")
-	//mux.HandleFunc("/healthz", Health)
+func (g *Gate) InitHTTP() error {
+	g.Router = gmux.NewRouter()
 
-	// Resource list.
-	APILog.Info0("Register HTTP Resource listing at \"/resources\"")
-	mux.HandleFunc("/resources", ListResource)
+	log.Info0("Register HTTP endpoint \"/namespace\"")
+	g.Router.HandleFunc("/namespace", NamespaceOperate).Methods("POST", "DELETE")
+	g.Router.HandleFunc("/namespace", ListNamespace).Methods("GET")
 
-	// Namespace
-	APILog.Info0("Register HTTP endpoint \"/namespace\"")
-	mux.HandleFunc("/namespace", NamespaceOperate).Methods("POST", "DELETE")
-	mux.HandleFunc("/namespace", ListNamespace).Methods("GET")
 	APILog.Info0("Register HTTP endpoint \"/group\"")
-	mux.HandleFunc("/group", ListGroup).Methods("GET")
-	mux.HandleFunc("/group", GroupOperation).Methods("POST", "DELETE")
+	g.Router.HandleFunc("/group", ListGroup).Methods("GET")
+	g.Router.HandleFunc("/group", GroupOperation).Methods("POST", "DELETE")
+
 	APILog.Info0("Register HTTP endpoint \"/user\"")
-	mux.HandleFunc("/user", ListUser).Methods("GET")
-	mux.HandleFunc("/user", UserOperation).Methods("POST", "DELETE")
+	g.Router.HandleFunc("/user", ListUser).Methods("GET")
+	g.Router.HandleFunc("/user", UserOperation).Methods("POST", "DELETE")
+
 	APILog.Info0("Register HTTP endpoint \"msg\"")
-	mux.HandleFunc("/msg", PullMessage).Methods("GET")
+	g.Router.HandleFunc("/msg", PullMessage).Methods("GET")
 
 	return nil
 }
 
-func NewHTTPAPIMux() (http.Handler, error) {
-	mux := gmux.NewRouter()
-	if err := RegisterHTTPAPI(mux); err != nil {
-		return nil, err
+func (g *Gate) ServeHTTP() {
+	log.Infof0("Create HTTP Server. Endpoint is \"" + g.config.APIEndpoint.String() + "\"")
+	g.HTTP = &http.Server{
+		Addr: g.config.APIEndpoint.String(),
+		Handler: log.TagLogHandler(g.Router, map[string]interface{}{
+			"entity": "http",
+		}),
 	}
 
-	return mux, nil
-}
+	log.Info0("Serving HTTP API...")
+	if err := g.HTTP.ListenAndServe(); err != nil {
+		g.fatal <- err
+		log.Fatal("HTTP Server failure: " + err.Error())
+	}
 
-func init() {
-	APILog = log.NewLogger()
+	log.Info0("HTTP Server exiting...")
 }

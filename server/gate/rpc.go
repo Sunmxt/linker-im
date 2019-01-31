@@ -12,53 +12,42 @@ import (
 type GateRPC struct{}
 
 func (r GateRPC) Push(msgs *proto.MessagePushArguments, reply *struct{}) error {
-	hub, err := GetHub()
-	if err != nil {
-		return err
-	}
-	return hub.Push(msgs.Gups)
+	return gate.Hub.Push(msgs.Gups)
 }
 
 func Health(writer http.ResponseWriter, req *http.Request) {
 	io.WriteString(writer, "ok")
 }
 
-func NewServiceMux() (*http.ServeMux, error) {
-	rpcServer := rpc.NewServer()
-	rpcServer.Register(GateRPC{})
+func (g *Gate) ServeRPC() {
+	if g.config.RPCEndpoint.Scheme != "tcp" {
+		g.fatal <- errors.New("Not supported network type: " + g.config.RPCEndpoint.Scheme)
+	}
+
+	log.Info0("RPC Serving...")
+	if err := g.RPC.ListenAndServe(); err != nil {
+		g.fatal <- err
+	}
+}
+
+func (g *Gate) InitRPC() error {
+	rpc := rpc.NewServer()
+	rpc.Register(GateRPC{})
 
 	// Mux
 	mux := http.NewServeMux()
 
-	log.Info0("Register health-check HTTP endpoint at \"/healthz\"")
+	log.Info0("Register RPC health-check endpoint at \"/healthz\"")
 	mux.HandleFunc("/healthz", Health)
 
-	log.Info0("Register RPC HTTP endpoint at \"" + proto.RPC_PATH + "\"")
-	mux.Handle(proto.RPC_PATH, rpcServer)
+	log.Info0("Register RPC endpoint at \"" + proto.RPC_PATH + "\"")
+	mux.Handle(proto.RPC_PATH, rpc)
 
-	return mux, nil
-}
-
-func ServeRPC() {
-	mux, err := NewServiceMux()
-	defer func() {
-		if err != nil {
-			log.Error("RPC Server failure: " + err.Error())
-		}
-	}()
-	if err != nil {
-		return
+	g.RPC = &http.Server{
+		Addr:    g.config.RPCEndpoint.AuthorityString(),
+		Handler: mux,
 	}
+	log.Info0("RPC Serve at \"" + g.config.RPCEndpoint.String() + "\".")
 
-	switch Config.RPCEndpoint.Scheme {
-	case "tcp":
-		server := http.Server{
-			Addr:    Config.RPCEndpoint.AuthorityString(),
-			Handler: mux,
-		}
-		log.Info0("RPC Serve at \"" + Config.RPCEndpoint.String() + "\"")
-		err = server.ListenAndServe()
-	default:
-		err = errors.New("Not supported network type: " + Config.RPCEndpoint.Scheme)
-	}
+	return nil
 }

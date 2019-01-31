@@ -4,50 +4,87 @@ import (
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/server"
+	"github.com/Sunmxt/linker-im/server/dig"
+	gmux "github.com/gorilla/mux"
 	"net/http"
 )
 
 var Config *GatewayOptions
 var NodeID server.NodeID
 
-func Main() {
+type Gate struct {
+	config *GatewayOptions
+	ID     server.NodeID
+
+	HTTP   *http.Server
+	Router *gmux.Router
+
+	RPCRouter *gmux.Router
+	RPC       *http.Server
+
+	Service *ServiceEndpointSet
+	Dig     dig.Registry
+	Node    *dig.Node
+
+	Hub *Hub
+
+	fatal chan error
+}
+
+var gate *Gate
+
+func (g *Gate) Run() {
+	var err error
+
 	fmt.Println("Protocol exporter of Linker IM.")
-	config, err := configureParse()
-	if config == nil {
+	g.config, err = configureParse()
+	if g.config == nil {
 		log.Fatalf("%v", err.Error())
 		return
 	}
 
 	log.Infof0("Linker IM Server Gateway Start.")
 
-	Config = config
-
 	// Log level
-	log.Infof0("Log Level set to %v.", Config.LogLevel.Value)
-	log.SetGlobalLogLevel(Config.LogLevel.Value)
+	log.Infof0("Log Level set to %v.", g.config.LogLevel.Value)
+	log.SetGlobalLogLevel(g.config.LogLevel.Value)
 
-	NodeID = server.NewNodeID()
-	log.Infof0("Gateway Node ID is %v.", NodeID.String())
+	// Node ID
+	g.ID = server.NewNodeID()
+	log.Infof0("Gateway Node ID is " + g.ID.String() + ".")
 
-	// Serve IM API
-	httpMux, err := NewHTTPAPIMux()
-	log.Infof0("HTTP API Serve at %v.", config.APIEndpoint.String())
-	api_server := http.Server{
-		Addr: config.APIEndpoint.String(),
-		Handler: log.TagLogHandler(httpMux, map[string]interface{}{
-			"entity": "http-api",
-		}),
-	}
+	g.fatal = make(chan error)
 
-	if err = RegisterResources(); err != nil {
-		log.Fatalf("Failed to register resource \"%v\".", err.Error())
+	// HTTP
+	if err = g.InitHTTP(); err != nil {
+		log.Fatal("Cannot initialize HTTP: " + err.Error())
 		return
 	}
 
-	go ServeRPC()
-
-	log.Trace("APIServer Object:", api_server)
-	if err = api_server.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to serve API: %s", err.Error())
+	// Core objects.
+	if err = g.InitService(); err != nil {
+		log.Fatal("Cannot initialize Services: " + err.Error())
+		return
 	}
+
+	// RPC
+	if err = g.InitRPC(); err != nil {
+		log.Fatal("Cannot initialize RPC: " + err.Error())
+		return
+	}
+
+	go g.ServeHTTP()
+	go g.ServeRPC()
+	go g.Discover()
+
+	if err = <-g.fatal; err != nil {
+		log.Fatal(err.Error())
+	}
+
+	log.Info0("Exiting...")
+}
+
+func Main() {
+	gate = &Gate{}
+	gate.Run()
 }
