@@ -54,8 +54,8 @@ func (dat *UserMetadata) Unserialize([]byte) error {
 	return nil
 }
 
-func NewDefaultUserMetadata() *GroupMetadata {
-	return &GroupMetadata{}
+func NewDefaultUserMetadata() *UserMetadata {
+	return &UserMetadata{}
 }
 
 type SubscriptionMetadata struct {

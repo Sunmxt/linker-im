@@ -48,11 +48,27 @@ type SubscribeArguments struct {
 	Subs      []Subscription
 }
 
-type NamespaceOperationArguments struct {
-	Names []string
+const (
+    ENTITY_NAMESPACE     = uint8(1)
+    ENTITY_USER          = uint8(2)
+    ENTITY_GROUP         = uint8(3)
+
+    ENTITY_ADD     = uint8(1)
+    ENTITY_DEL     = uint8(2)
+)
+
+type EntityAlterArguments struct {
+    Entities  []string
+    Operation uint8
+    Type      uint8
 }
 
-type NamespaceListReply struct {
-	Names  []string
-	ErrMsg string
+type EntityListArguments struct {
+    Namespace   string
+    Type        uint8
+}
+
+type EntityListReply struct {
+    Entities []string
+    Msg      string
 }

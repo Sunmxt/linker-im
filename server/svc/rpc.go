@@ -6,8 +6,8 @@ import (
 	ilog "github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
 	"github.com/Sunmxt/linker-im/server"
-	"github.com/Sunmxt/linker-im/server/resource"
 	"net/http"
+    "net/rpc"
 )
 
 // Errors
@@ -39,112 +39,127 @@ func (svc ServiceRPC) logError(err error) {
 		return
 	}
 	switch err.(type) {
-	case resource.ResourceAuthError:
+	case server.AuthError:
 		svc.log.Info1("Resource authorization error: " + err.Error())
 	default:
 		svc.log.Info0("RPC Error: " + err.Error())
 	}
 }
 
-func (svc ServiceRPC) NamespaceAdd(args *proto.NamespaceOperationArguments, reply *string) error {
-	if len(args.Names) < 1 {
-		return nil
-	}
-	model, err := svc.getModel()
-	defer func() {
-		svc.logError(err)
-	}()
-	if err != nil {
-		return err
-	}
-
-	meta := NewDefaultNamespaceMetadata()
-	mapMeta := make(map[string]*NamespaceMetadata, len(args.Names))
-	for _, ns := range args.Names {
-		mapMeta[ns] = meta
-	}
-	if err = model.SetNamespaceMetadata(mapMeta, true); err != nil {
-		return err
-	}
-	return nil
+func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.EntityListReply) error {
+    var err error
+    switch args.Type {
+    case proto.ENTITY_NAMESPACE:
+        reply.Entities, err = service.Model.ListNamespace()
+    case proto.ENTITY_GROUP:
+        reply.Entities, err = service.Model.ListGroup(args.Namespace)
+    case proto.ENTITY_USER:
+        reply.Entities, err = service.Model.ListUser(args.Namespace)
+    default:
+        reply.Msg = fmt.Sprintf("Unknown entity: %v", args.Type)
+    }
+    return err
 }
 
-func (svc ServiceRPC) NamespaceRemove(args *proto.NamespaceOperationArguments, reply *string) error {
-	if len(args.Names) < 1 {
-		return nil
-	}
-	model, err := svc.getModel()
-	defer func() {
-		svc.logError(err)
-	}()
-	if err != nil {
-		return err
-	}
-	if err = model.DeleteNamespacesMetadata(args.Names); err != nil {
-		return err
-	}
-	return nil
+func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *string) error {
+    var err error
+    if args.Operation != proto.ENTITY_ADD && args.Operation != proto.ENTITY_DEL {
+        *reply = fmt.Sprintf("Unknown operation: %v", args.Operation)
+        return nil
+    }
+
+    switch args.Type {
+    case proto.ENTITY_NAMESPACE:
+        if len(args.Entities) < 1 {
+            break
+        }
+        if args.Operation == proto.ENTITY_ADD { 
+            mapping, empty := make(map[string]*NamespaceMetadata, len(args.Entities)), NewDefaultNamespaceMetadata()
+            for idx := range args.Entities {
+                mapping[args.Entities[idx]] = empty
+            }
+            err = service.Model.SetNamespaceMetadata(mapping, true)
+        } else {
+            err = service.Model.DeleteNamespaceMetadata(args.Entities)
+        }
+
+    case proto.ENTITY_GROUP:
+        if len(args.Entities) < 2 {
+            break
+        }
+        if args.Operation == proto.ENTITY_ADD {
+            mapping, empty := make(map[string]*GroupMetadata, len(args.Entities)-1), NewDefaultGroupMetadata()
+            for idx := range args.Entities[1:] {
+                mapping[args.Entities[idx]] = empty
+            }
+            err = service.Model.SetGroupMetadata(args.Entities[0], mapping, true)
+        } else {
+            err = service.Model.DeleteGroupMetadata(args.Entities[0], args.Entities[1:])
+        }
+
+    case proto.ENTITY_USER:
+        if len(args.Entities) < 2 {
+            break
+        }
+        if args.Operation == proto.ENTITY_ADD {
+            mapping, empty := make(map[string]*UserMetadata, len(args.Entities)-1), NewDefaultUserMetadata()
+            for idx := range args.Entities[1:] {
+                mapping[args.Entities[idx]] = empty
+            }
+            err = service.Model.SetUserMetadata(args.Entities[0], mapping, true)
+        } else {
+            err = service.Model.DeleteUserMetadata(args.Entities[0], args.Entities[1:])
+        }
+
+    default:
+        *reply = fmt.Sprintf("Unknown entity: %v", args.Type)
+    }
+    return err
 }
 
-func (svc ServiceRPC) NamespaceList(args *proto.Dummy, reply *proto.NamespaceListReply) error {
-	model, err := svc.getModel()
-	defer func() {
-		svc.logError(err)
-	}()
-	if err != nil {
-		return err
-	}
-	if reply.Names, err = model.ListNamespace(); err != nil {
-		return err
-	}
-	return nil
+func (svc *Service) InitRPC() error {
+    rpcServer := rpc.NewServer()
+    rpcRuntime := ServiceRPC{
+        NodeID: svc.ID,
+        log: ilog.NewLogger(),
+    }
+    rpcRuntime.log.Fields["entity"] = "rpc"
+
+    rpcServer.Register(rpcRuntime)
+
+    // Mux
+    healthMux := http.NewServeMux()
+    healthMux.HandleFunc("/", Healthz)
+
+    svc.RPCRouter = http.NewServeMux()
+    // Health check
+    ilog.Info0("Register RPC health-check endpoint \"/healthz\"")
+	svc.RPCRouter.Handle("/healthz", ilog.TagLogHandler(healthMux, map[string]interface{}{
+		"entity": "health-check",
+	}))
+
+	// RPC
+    ilog.Info0("Register RPC endpoint \"" + proto.RPC_PATH + "\"")
+	svc.RPCRouter.Handle(proto.RPC_PATH, rpcServer)
+
+    if svc.Config.Endpoint.Scheme != "tcp" {
+		return errors.New("Not supported rpc scheme: " + svc.Config.Endpoint.Scheme)
+    }
+
+	ilog.Info0("Initialize RPC Server at \"" +  svc.Config.Endpoint.String() + "\".")
+    svc.RPC = &http.Server{
+		Addr:    svc.Config.Endpoint.AuthorityString(),
+		Handler: svc.RPCRouter,
+    }
+
+    return nil
 }
 
-func (svc ServiceRPC) getModel() (*Model, error) {
-	res, err := svc.getResource("model", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	model, ok := res.(*Model)
-	if !ok {
-		return nil, errors.New("Resource \"model\" has invalid type.")
-	}
-	return model, nil
-}
-
-func (svc ServiceRPC) getResource(name string, credentials map[string]string) (interface{}, error) {
-	res, err := resource.Registry.AuthAccess(name, credentials)
-	if err != nil {
-		if _, ok := err.(resource.ResourceAuthError); ok {
-			svc.log.Infof0("Deny access to resource \"%v\" (%v).", name, err.Error())
-			return nil, err
-		} else {
-			return nil, err
-		}
-	}
-	return res, err
-}
-
-func ServeRPC() error {
-	mux, err := NewServiceServeMux()
-
-	if err != nil {
-		err = fmt.Errorf("Error occurs when create mux (%v)", err.Error())
-	}
-
-	// Serve RPC
-	switch Config.Endpoint.Scheme {
-	case "tcp":
-		httpServer := &http.Server{
-			Addr:    Config.Endpoint.AuthorityString(),
-			Handler: mux,
-		}
-		ilog.Infof0("RPC Serve at %v", Config.Endpoint.String())
-		err = httpServer.ListenAndServe()
-	default:
-		err = fmt.Errorf("Not supported rpc scheme: %v", Config.Endpoint.Scheme)
-	}
-
-	return err
+func (svc *Service) ServeRPC() {
+    ilog.Info0("RPC Serving...")
+	if err := svc.RPC.ListenAndServe(); err != nil {
+        ilog.Error("RPC Server failure: " + err.Error())
+        svc.fatal <- err
+    }
+    ilog.Info0("RPC Stopping...")
 }

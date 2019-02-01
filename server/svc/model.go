@@ -112,42 +112,25 @@ func (m *Model) listMetadata(key string) ([]string, error) {
 	return keys, nil
 }
 
-func (m *Model) getMetadata(key string, metas map[string][]byte) error {
+func (m *Model) getMetadata(key string, mapKeys []string) ([][]byte, error) {
 	bm := m.GetBlobMap(key, 0, nil)
-	keys := make([]string, 0, len(metas))
-	for k, _ := range metas {
-		keys = append(keys, k)
-	}
-	binarys, version, err := bm.Gets(keys)
+	binarys, version, err := bm.Gets(mapKeys)
 	if err != nil {
 		m.Log.Error("Failed to get metadata for " + "\"" + key + "\": " + err.Error())
-		return err
+		return nil, err
 	}
 	m.Log.Infof1("Get metadata for key \"%v\". (version = %v)", key, version)
-	for idx, key := range keys {
-		bin := binarys[idx]
-		if bin != nil {
-			metas[key] = bin
-		}
-	}
-
-	return nil
+	return binarys, nil
 }
 
 func (m *Model) GetNamespaceMetadata(namespaces []string) ([]*NamespaceMetadata, error) {
-	var err error
-
-	kv := make(map[string][]byte, len(namespaces))
-	for _, key := range namespaces {
-		kv[key] = nil
-	}
-	if err = m.getMetadata("namespaces", kv); err != nil {
+	bins, err := m.getMetadata("namespaces", namespaces)
+    if err != nil {
 		return nil, err
 	}
-	metas := make([]*NamespaceMetadata, len(namespaces))
+	metas := make([]*NamespaceMetadata, len(namespaces), len(namespaces))
 	for idx, key := range namespaces {
-		bin, ok := kv[key]
-		if ok && bin != nil {
+		if bin := bins[idx]; bin != nil {
 			meta := &NamespaceMetadata{}
 			if err = meta.Unserialize(bin); err != nil {
 				m.Log.Fatal("Broken metadata of namespace \"" + key + "\":" + err.Error())
@@ -156,24 +139,17 @@ func (m *Model) GetNamespaceMetadata(namespaces []string) ([]*NamespaceMetadata,
 			}
 		}
 	}
-
 	return metas, nil
 }
 
 func (m *Model) GetGroupMetadata(namespace string, groups []string) ([]*GroupMetadata, error) {
-	var err error
-
-	kv := make(map[string][]byte, len(groups))
-	for _, key := range groups {
-		kv[key] = nil
-	}
-	if err = m.getMetadata("groups."+namespace, kv); err != nil {
+	bins, err := m.getMetadata("groups."+namespace, groups)
+    if err != nil {
 		return nil, err
 	}
-	metas := make([]*GroupMetadata, len(groups))
+	metas := make([]*GroupMetadata, len(groups), len(groups))
 	for idx, key := range groups {
-		bin, ok := kv[key]
-		if ok && bin != nil {
+		if bin := bins[idx]; bin != nil {
 			meta := &GroupMetadata{}
 			if err = meta.Unserialize(bin); err != nil {
 				m.Log.Fatal("Broken metadata of group \"" + key + "\" in namespace \"" + namespace + "\"" + ":" + err.Error())
@@ -182,24 +158,17 @@ func (m *Model) GetGroupMetadata(namespace string, groups []string) ([]*GroupMet
 			}
 		}
 	}
-
 	return metas, nil
 }
 
 func (m *Model) GetUserMetadata(namespace string, users []string) ([]*UserMetadata, error) {
-	var err error
-
-	kv := make(map[string][]byte, len(users))
-	for _, key := range users {
-		kv[key] = nil
-	}
-	if err = m.getMetadata("users."+namespace, kv); err != nil {
+	bins, err := m.getMetadata("users."+namespace, users)
+    if err != nil {
 		return nil, err
 	}
-	metas := make([]*UserMetadata, len(users))
+	metas := make([]*UserMetadata, len(users), len(users))
 	for idx, key := range users {
-		bin, ok := kv[key]
-		if ok && bin != nil {
+		if bin := bins[idx]; bin != nil {
 			meta := &UserMetadata{}
 			if err = meta.Unserialize(bin); err != nil {
 				m.Log.Fatal("Broken metadata of user \"" + key + "\" in namespace \"" + namespace + "\"" + ":" + err.Error())
@@ -208,7 +177,6 @@ func (m *Model) GetUserMetadata(namespace string, users []string) ([]*UserMetada
 			}
 		}
 	}
-
 	return metas, nil
 }
 
@@ -236,7 +204,7 @@ func (m *Model) SetUserMetadata(namespaces string, metas map[string]*UserMetadat
 	return m.setMetadata("users."+namespaces, bins, isDefault)
 }
 
-func (m *Model) DeleteNamespacesMetadata(namespaces []string) error {
+func (m *Model) DeleteNamespaceMetadata(namespaces []string) error {
 	return m.delMetadata("namespaces", namespaces)
 }
 

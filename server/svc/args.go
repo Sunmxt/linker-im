@@ -121,5 +121,10 @@ func configureParse() (*ServiceOptions, error) {
 		return nil, err
 	}
 
+    ilog.Info0("Configurations:")
+	flag.VisitAll(func(fl *flag.Flag) {
+		ilog.Info0("-" + fl.Name + "=" + fl.Value.String())
+	})
+
 	return options, err
 }
