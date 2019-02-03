@@ -5,6 +5,7 @@ import (
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/server"
 	"github.com/Sunmxt/linker-im/server/dig"
+	"github.com/gomodule/redigo/redis"
 	gmux "github.com/gorilla/mux"
 	"net/http"
 )
@@ -15,20 +16,17 @@ var NodeID server.NodeID
 type Gate struct {
 	config *GatewayOptions
 	ID     server.NodeID
-
 	HTTP   *http.Server
 	Router *gmux.Router
-
 	RPCRouter *gmux.Router
 	RPC       *http.Server
-
-	Service *ServiceEndpointSet
+	LB  *ServiceLB
 	Dig     dig.Registry
 	Node    *dig.Node
-
+	Redis *redis.Pool
 	Hub *Hub
-
 	fatal chan error
+    discover chan *dig.Notification
 }
 
 var gate *Gate
@@ -75,7 +73,9 @@ func (g *Gate) Run() {
 
 	go g.ServeHTTP()
 	go g.ServeRPC()
-	go g.Discover()
+	go g.Dig()
+    go g.DigService()
+	go g.Routing()
 
 	if err = <-g.fatal; err != nil {
 		log.Fatal(err.Error())

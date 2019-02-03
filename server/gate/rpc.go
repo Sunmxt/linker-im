@@ -26,6 +26,7 @@ func (g *Gate) ServeRPC() {
 
 	log.Info0("RPC Serving...")
 	if err := g.RPC.ListenAndServe(); err != nil {
+	    log.Error("RPC Server failure: " + err.Error())
 		g.fatal <- err
 	}
 }

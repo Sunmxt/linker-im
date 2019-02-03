@@ -19,7 +19,7 @@ type KeepaliveServiceInformation struct {
 	server.NodeID
 }
 
-// Push message.
+// push message group.
 type MessageGroup struct {
 	Msgs  []Message
 	Users []string
@@ -29,23 +29,23 @@ type MessagePushArguments struct {
 	Gups []MessageGroup
 }
 
+// push raw message.
+type RawMessagePushArguments struct {
+    Msgs    []MessageBody
+}
+
+type PushResult struct {
+    ID  MessageIdentifier
+    Code uint8
+}
 type MessagePushResult struct {
-	Replies []struct {
-		Timestamp uint64
-		Sequence  uint64
-		Code      uint8
-	}
+    Replies []PushResult
 }
 
 type Subscription struct {
-	Group    string
-	NotAfter int64
-}
-
-type SubscribeArguments struct {
-	User      string
 	Namespace string
-	Subs      []Subscription
+	User      string
+    Group     string
 }
 
 const (
@@ -58,6 +58,7 @@ const (
 )
 
 type EntityAlterArguments struct {
+    Namespace string
     Entities  []string
     Operation uint8
     Type      uint8

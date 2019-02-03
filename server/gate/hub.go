@@ -12,9 +12,17 @@ type Hub struct {
 	KeyConn   sync.Map
 	ConnCount int32
 
-	Meta ConnectMetadata
-
+	Meta    ConnectMetadata
 	BufSize uint
+
+	sigRoute chan *Connection
+}
+
+func NewHub(meta ConnectMetadata) *Hub {
+	return &Hub{
+		Meta:     meta,
+		sigRoute: make(chan *Connection),
+	}
 }
 
 // Initialize connection.
@@ -113,6 +121,8 @@ func (h *Hub) Connect(key string, meta ConnectMetadata) (*Connection, error) {
 		break
 	}
 	h.InitConnection(conn, &meta)
+
+	h.sigRoute <- conn
 
 	return conn, nil
 }

@@ -3,6 +3,7 @@ package svc
 import (
 	"fmt"
 	ilog "github.com/Sunmxt/linker-im/log"
+    "github.com/Sunmxt/linker-im/server/dig"
     "github.com/gomodule/redigo/redis"
     "github.com/Sunmxt/linker-im/server"
     "net/http"
@@ -16,6 +17,8 @@ type Service struct {
     Redis       *redis.Pool
     RPCRouter   *http.ServeMux
     RPC         *http.Server
+    Node        *dig.Node
+    Reg         dig.Registry
     ID          server.NodeID
     fatal       chan error
 }
@@ -36,6 +39,7 @@ func (svc *Service) Run() {
 
     svc.ID = server.NewNodeID()
     ilog.Info0("Node ID is " + svc.ID.String())
+    svc.fatal = make(chan error)
 
     if err = svc.InitService(); err != nil {
         ilog.Fatal("Cannot initialize service: " + err.Error())
@@ -48,6 +52,12 @@ func (svc *Service) Run() {
     }
 
     go svc.ServeRPC()
+    go svc.Discover()
+
+    if err = <-svc.fatal; err != nil {
+        ilog.Fatal(err.Error())
+    }
+    ilog.Info0("Exiting...")
 }
 
 func Main() {

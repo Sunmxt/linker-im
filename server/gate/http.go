@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
-	"github.com/Sunmxt/linker-im/server/resource"
 	gmux "github.com/gorilla/mux"
 	guuid "github.com/satori/go.uuid"
 	"io"
@@ -14,8 +13,6 @@ import (
 	"strconv"
 	//"github.com/Sunmxt/buger/jsonparser"
 )
-
-var APILog *log.Logger
 
 // API Request context
 type APIRequestContext struct {
@@ -29,8 +26,7 @@ type APIRequestContext struct {
 	Version     uint32
 	Code        uint32
 	CodeMessage string
-	Data        map[string]interface{}
-	ListData    []interface{}
+	Data        interface{}
 
 	RPC        *ServiceRPCClient
 	StatusCode int
@@ -40,20 +36,10 @@ type APIRequestContext struct {
 	Log *log.Logger
 }
 
-func NewAPIListRequestContext(w http.ResponseWriter, req *http.Request) (*APIRequestContext, error) {
-	var err error
 
-	ctx := NewEmptyAPIRequestContext(w, req)
-	defer func() {
-		// If any error occurs, shut the context.
-		if err != nil {
-			ctx.Finalize()
-		}
-	}()
+func NewRequestContext(w http.ResponseWriter, req *http.Request, ireq interface{}) (*APIRequestContext, error) {
+    ctx, buf := NewEmptyAPIRequestContext(w, req), make([]byte, req.ContentLength)
 
-	buf, ireq := make([]byte, req.ContentLength), proto.HTTPListRequest{}
-
-	// Parse request json.
 	readc, err := io.ReadFull(req.Body, buf)
 	ctx.Log.DebugLazy(func() string {
 		return fmt.Sprintf("Read %v bytes from body.", readc)
@@ -61,65 +47,18 @@ func NewAPIListRequestContext(w http.ResponseWriter, req *http.Request) (*APIReq
 	ctx.Log.TraceLazy(func() string {
 		return "Request body: " + string(buf)
 	})
-	if err != nil {
-		ctx.Code = proto.INVALID_ARGUMENT
-		ctx.CodeMessage = err.Error()
-		return nil, err
-	}
-	err = json.Unmarshal(buf, &ireq)
-	if err != nil {
-		ctx.Code = proto.INVALID_ARGUMENT
-		ctx.CodeMessage = err.Error()
-		return nil, err
-	}
-	ctx.ListData = ireq.Arguments
-
-	if err = ctx.initializeContext(); err != nil {
-		return nil, err
-	}
-
-	return ctx, nil
-}
-
-func NewAPIMapRequestContext(w http.ResponseWriter, req *http.Request) (*APIRequestContext, error) {
-	var err error
-
-	ctx := NewEmptyAPIRequestContext(w, req)
-	defer func() {
-		// If any error occurs, shut the context.
-		if err != nil {
-			ctx.Finalize()
-		}
-	}()
-
-	buf, ireq := make([]byte, req.ContentLength), proto.HTTPMapRequest{}
-
-	// Parse request json.
-	readc, err := io.ReadFull(req.Body, buf)
-	ctx.Log.DebugLazy(func() string {
-		return fmt.Sprintf("Read %v bytes from body.", readc)
-	})
-	ctx.Log.TraceLazy(func() string {
-		return "Request body: " + string(buf)
-	})
-	if err != nil {
-		ctx.Code = proto.INVALID_ARGUMENT
-		ctx.CodeMessage = err.Error()
-		return nil, err
-	}
-	err = json.Unmarshal(buf, &ireq)
-	if err != nil {
-		ctx.Code = proto.INVALID_ARGUMENT
-		ctx.CodeMessage = err.Error()
-		return nil, err
-	}
-	ctx.Data = ireq.Arguments
-
-	if err = ctx.initializeContext(); err != nil {
-		return nil, err
-	}
-
-	return ctx, nil
+    if err != nil {
+        ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
+        return nil, err
+    }
+    if err = json.Unmarshal(buf, ireq); err != nil {
+        ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
+        return nil, err
+    }
+    if err = ctx.initializeContext(); err != nil {
+        return nil, err
+    }
+    return ctx, nil
 }
 
 func NewEmptyAPIRequestContext(w http.ResponseWriter, req *http.Request) *APIRequestContext {
@@ -194,16 +133,15 @@ func (ctx *APIRequestContext) ParseNamespace() {
 	}
 }
 
-func (ctx *APIRequestContext) SetListResponse(list []interface{}) {
-	ctx.Data = nil
-	ctx.ListData = list
-	ctx.ResponseError(proto.SUCCEED, "")
-}
-
-func (ctx *APIRequestContext) SetMapResponse(mapping map[string]interface{}) {
-	ctx.Data = mapping
-	ctx.ListData = nil
-	ctx.ResponseError(proto.SUCCEED, "")
+func (ctx *APIRequestContext) WriteJson(resp interface{}) error {
+    raw, err := json.Marshal(resp)
+    if err != nil {
+        return err
+    }
+    if _, err = ctx.Writer.Write(raw); err != nil {
+        return err
+    }
+    return nil
 }
 
 func (ctx *APIRequestContext) ResponseError(code uint32, msg string) {
@@ -218,8 +156,7 @@ func (ctx *APIRequestContext) Finalize() {
 
 	ctx.Writer.WriteHeader(ctx.StatusCode)
 
-	switch ctx.Code {
-	case proto.SERVER_INTERNAL_ERROR:
+	if ctx.Code == proto.SERVER_INTERNAL_ERROR {
 		// Log error
 		ctx.Log.Error(ctx.CodeMessage)
 
@@ -232,91 +169,47 @@ func (ctx *APIRequestContext) Finalize() {
 		}
 
 		// Try to return error with API Format.
-		raw, err = json.Marshal(proto.HTTPListResponse{
+        if err = ctx.WriteJson(proto.HTTPListResponse{
 			APIVersion:   1,
 			Data:         nil,
 			Code:         proto.SERVER_INTERNAL_ERROR,
 			ErrorMessage: ctx.CodeMessage,
-		})
-
-		// Fallback to HTTP 500
-		if err != nil {
+		}); err != nil {
+		    // Fallback to HTTP 500
 			http.Error(ctx.Writer, ctx.CodeMessage, 500)
-		} else {
-			_, err = ctx.Writer.Write(raw)
-		}
-	default:
+        }
+    } else {
 		if ctx.CodeMessage == "" {
 			// Set default message.
 			ctx.CodeMessage = proto.ErrorCodeText(ctx.Code)
 		}
-		if ctx.Data != nil {
-			raw, err = json.Marshal(proto.HTTPMapResponse{
-				APIVersion:   ctx.Version,
-				Data:         ctx.Data,
-				Code:         ctx.Code,
-				ErrorMessage: ctx.CodeMessage,
-			})
-		} else {
-			raw, err = json.Marshal(proto.HTTPListResponse{
-				APIVersion:   ctx.Version,
-				Data:         ctx.ListData,
-				Code:         ctx.Code,
-				ErrorMessage: ctx.CodeMessage,
-			})
-		}
-		if err != nil {
-			// Fallback to internal error.
-			ctx.Code = proto.SERVER_INTERNAL_ERROR
-			ctx.CodeMessage = "JSON marshal failure (" + err.Error() + ")."
-			ctx.Finalize()
-		} else {
-			_, err = ctx.Writer.Write(raw)
-		}
+        if err = ctx.WriteJson(proto.HTTPResponse{
+		    APIVersion:   ctx.Version,
+			Data:         ctx.Data,
+			Code:         ctx.Code,
+			ErrorMessage: ctx.CodeMessage,
+        }) ; err != nil {
+            ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "JSON marshal failure (" + err.Error() + ").")
+        }
 	}
 
 	ctx.EndRPC(nil)
 }
 
 // API
-func ListResource(w http.ResponseWriter, req *http.Request) {
-	res := resource.Registry.ListResources()
-	data := make([]interface{}, 0, len(res))
-	for _, r := range res {
-		data = append(data, r)
-	}
 
-	bin, err := json.Marshal(proto.HTTPListResponse{
-		APIVersion:   1,
-		Data:         data,
-		Code:         0,
-		ErrorMessage: proto.ErrorMessageFromCode[0],
-	})
-
-	if err != nil {
-		APILog.Errorf("Json marshal failure: %v", err.Error())
-	}
-	w.Write(bin)
+func EntityAlter(w http.ResponseWriter, req *http.Request) {
 }
 
 func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 	var rpcClient *ServiceRPCClient
+    var req proto.EntityAlterV1
 
-	ctx, err := NewAPIListRequestContext(w, req)
+	ctx, err := NewAPIListRequestContext(w, req, &req)
 	if err != nil {
 		return
 	}
 	defer ctx.Finalize()
-
-	namespaces := make([]string, 0, len(ctx.ListData))
-	for _, raw := range ctx.ListData {
-		ns, ok := raw.(string)
-		if !ok {
-			ctx.ResponseError(proto.INVALID_ARGUMENT, "")
-			return
-		}
-		namespaces = append(namespaces, ns)
-	}
 
 	rpcClient, err = ctx.BeginRPC()
 	if err != nil {
@@ -325,16 +218,16 @@ func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 
 	switch ctx.Req.Method {
 	case "POST":
-		err = rpcClient.NamespaceAdd(namespaces)
+		err = rpcClient.NamespaceAdd(req.Entities)
 	case "DELETE":
-		err = rpcClient.NamespaceRemove(namespaces)
+		err = rpcClient.NamespaceRemove(req.Entities)
 	default:
 		ctx.StatusCode = 400
 		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid operation")
 		return
 	}
 	if err != nil {
-		authErr, isAuthErr := err.(resource.ResourceAuthError)
+		authErr, isAuthErr := err.(server.AuthError)
 		if isAuthErr {
 			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
 		} else {
@@ -343,7 +236,7 @@ func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ctx.SetListResponse(nil)
+	ctx.SetResponse(nil)
 }
 
 func ListNamespace(w http.ResponseWriter, req *http.Request) {
@@ -364,7 +257,7 @@ func ListNamespace(w http.ResponseWriter, req *http.Request) {
 	namespaces, err = rpcClient.NamespaceList()
 	ctx.EndRPC(err)
 	if err != nil {
-		authErr, isAuthErr := err.(resource.ResourceAuthError)
+		authErr, isAuthErr := err.(server.AuthError)
 		if isAuthErr {
 			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
 		} else {
@@ -483,16 +376,17 @@ func (g *Gate) InitHTTP() error {
 	log.Info0("Register HTTP endpoint \"/namespace\"")
 	g.Router.HandleFunc("/namespace", NamespaceOperate).Methods("POST", "DELETE")
 	g.Router.HandleFunc("/namespace", ListNamespace).Methods("GET")
+    g.Router.HandleFunc("/namespace", EntityAlter).Methods("POST", "DELETE")
 
-	APILog.Info0("Register HTTP endpoint \"/group\"")
+	log.Info0("Register HTTP endpoint \"/group\"")
 	g.Router.HandleFunc("/group", ListGroup).Methods("GET")
 	g.Router.HandleFunc("/group", GroupOperation).Methods("POST", "DELETE")
 
-	APILog.Info0("Register HTTP endpoint \"/user\"")
+	log.Info0("Register HTTP endpoint \"/user\"")
 	g.Router.HandleFunc("/user", ListUser).Methods("GET")
 	g.Router.HandleFunc("/user", UserOperation).Methods("POST", "DELETE")
 
-	APILog.Info0("Register HTTP endpoint \"msg\"")
+	log.Info0("Register HTTP endpoint \"msg\"")
 	g.Router.HandleFunc("/msg", PullMessage).Methods("GET")
 
 	return nil

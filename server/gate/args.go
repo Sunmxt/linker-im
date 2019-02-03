@@ -32,6 +32,15 @@ type GatewayOptions struct {
 	// Redis prefix.
 	RedisPrefix *cmdline.StringValue
 
+	// Redis pool maximum idle connections.
+	RedisPoolIdleMax *cmdline.UintValue
+
+	// Redis pool maximum active connections.
+	RedisPoolActiveMax *cmdline.UintValue
+
+	// Route timeout.
+	RouteTimeout *cmdline.UintValue
+
 	// List of service endpoints.
 	ServiceEndpoints *cmdline.NetEndpointSetValue
 
@@ -120,6 +129,9 @@ func (options *GatewayOptions) SetDefault() error {
 	if options.RedisEndpoint.Scheme == "" {
 		options.RedisEndpoint.Scheme = "tcp"
 	}
+	if options.RPCEndpoint.Scheme == "" {
+		options.RPCEndpoint.Scheme = "tcp"
+	}
 	return nil
 }
 
@@ -162,7 +174,10 @@ func configureParse() (*GatewayOptions, error) {
 		RedisEndpoint:      redis_endpoint,
 		RedisPrefix:        cmdline.NewStringValueDefault("linker"),
 		ServiceEndpoints:   serviceEndpoints,
+		RouteTimeout:       cmdline.NewUintValueDefault(10),
 		MessageBulkTime:    cmdline.NewUintValueDefault(50),
+		RedisPoolIdleMax:   cmdline.NewUintValueDefault(100),
+		RedisPoolActiveMax: cmdline.NewUintValueDefault(100),
 		ActiveTimeout:      cmdline.NewUintValueDefault(5000),
 		DebugMode:          cmdline.NewBoolValueDefault(false),
 		RPCPublishEndpoint: rpcPub,
@@ -178,9 +193,12 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
 	flag.Var(options.KeepalivePeriod, "keepalive-period", "Keepalive period. Can not be 0.")
 	flag.Var(options.ActiveTimeout, "active-timeout", "")
+	flag.Var(options.RedisPoolIdleMax, "redis-max-idle", "Maximum idle redis connections.")
+	flag.Var(options.RedisPoolActiveMax, "redis-max-active", "Maximum active redis connections.")
 	flag.Var(options.DebugMode, "debug", "Enable debug mode.")
 	flag.Var(options.RPCEndpoint, "rpc", "RPC endpoint.")
 	flag.Var(options.RPCPublishEndpoint, "rpc-publish", "RPC publish endpoint.")
+	flag.Var(options.RouteTimeout, "route-timeout", "route timeout.")
 
 	flag.Parse()
 

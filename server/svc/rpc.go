@@ -17,20 +17,17 @@ type ServiceRPC struct {
 	log *ilog.Logger
 }
 
-func (svc ServiceRPC) Keepalive(gateInfo *proto.KeepaliveGatewayInformation, serviceInfo *proto.KeepaliveServiceInformation) error {
-	ilog.Infof2("Keepalive from gateway %v.", gateInfo.NodeID.String())
-	*serviceInfo = proto.KeepaliveServiceInformation{
-		NodeID: svc.NodeID,
-	}
-	return nil
+func (svc ServiceRPC) Echo(args *string, reply *string) error {
+    *reply = *args
+    return nil
 }
 
 // Push message sequences.
-func (svc ServiceRPC) Push(msg *proto.MessagePushArguments, reply *proto.MessagePushResult) error {
+func (svc ServiceRPC) Push(msg *proto.RawMessagePushArguments, reply *proto.MessagePushResult) error {
 	return fmt.Errorf("Message pushing not avaliable.")
 }
 
-func (svc ServiceRPC) Subscribe(args *proto.SubscribeArguments, reply *string) error {
+func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
 	return nil
 }
 
@@ -89,12 +86,12 @@ func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *strin
         }
         if args.Operation == proto.ENTITY_ADD {
             mapping, empty := make(map[string]*GroupMetadata, len(args.Entities)-1), NewDefaultGroupMetadata()
-            for idx := range args.Entities[1:] {
+            for idx := range args.Entities {
                 mapping[args.Entities[idx]] = empty
             }
-            err = service.Model.SetGroupMetadata(args.Entities[0], mapping, true)
+            err = service.Model.SetGroupMetadata(args.Namespace, mapping, true)
         } else {
-            err = service.Model.DeleteGroupMetadata(args.Entities[0], args.Entities[1:])
+            err = service.Model.DeleteGroupMetadata(args.Namespace, args.Entities)
         }
 
     case proto.ENTITY_USER:
@@ -103,12 +100,12 @@ func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *strin
         }
         if args.Operation == proto.ENTITY_ADD {
             mapping, empty := make(map[string]*UserMetadata, len(args.Entities)-1), NewDefaultUserMetadata()
-            for idx := range args.Entities[1:] {
+            for idx := range args.Entities {
                 mapping[args.Entities[idx]] = empty
             }
-            err = service.Model.SetUserMetadata(args.Entities[0], mapping, true)
+            err = service.Model.SetUserMetadata(args.Namespace, mapping, true)
         } else {
-            err = service.Model.DeleteUserMetadata(args.Entities[0], args.Entities[1:])
+            err = service.Model.DeleteUserMetadata(args.Namespace, args.Entities)
         }
 
     default:

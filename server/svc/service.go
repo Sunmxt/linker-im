@@ -3,10 +3,13 @@ package svc
 import (
     "github.com/Sunmxt/linker-im/log"
     "github.com/gomodule/redigo/redis"
+    "github.com/Sunmxt/linker-im/server/dig"
     "runtime"
 )
 
 func (svc *Service) InitService() error {
+    var err error
+
     log.Info0("Initizlize redis connection pool.")
 	svc.Redis = &redis.Pool{
 		Dial: func() (redis.Conn, error) {
@@ -21,6 +24,11 @@ func (svc *Service) InitService() error {
 
     log.Info0("Initialize model.")
     svc.Model = NewModel(svc.Redis, svc.Config.RedisPrefix.Value)
+
+    log.Info0("Initialize node discovery.")
+    if svc.Reg, err = dig.Connect("redis", svc.Redis, svc.Config.RedisPrefix.Value); err != nil {
+        return err
+    }
 
     return nil
 }
