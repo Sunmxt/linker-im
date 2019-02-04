@@ -3,7 +3,7 @@ package dig
 import (
 	"github.com/gomodule/redigo/redis"
 	"sync"
-    //"fmt"
+	//"fmt"
 )
 
 type RedisConnector struct{}
@@ -122,7 +122,7 @@ func (r *RedisRegistry) redisConnect() (redis.Conn, error) {
 	return pool.Get(), nil
 }
 
-func (r *RedisRegistry) Poll(notify chan *Notification) (bool, error) {
+func (r *RedisRegistry) Poll(notify func(*Notification)) (bool, error) {
 	conn, err := r.redisConnect()
 	if err != nil {
 		return false, err
@@ -140,12 +140,12 @@ func (r *RedisRegistry) Poll(notify chan *Notification) (bool, error) {
 		for idx := range svcs {
 			_, created := r.GetService(svcs[idx], false)
 			if !created { // New service discovered.
-                if notify != nil {
-                    notify <- &Notification{
-                        Event: EVENT_SERVICE_FOUND,
-                        Name:  svcs[idx],
-                    }
-                }
+				if notify != nil {
+					notify(&Notification{
+						Event: EVENT_SERVICE_FOUND,
+						Name:  svcs[idx],
+					})
+				}
 				changed = true
 			}
 		}
@@ -181,7 +181,7 @@ func (r *RedisRegistry) Node(name string) (*Node, error) {
 	return r.getNode(nil, name), nil
 }
 
-func (r *RedisRegistry) getNode(notify chan *Notification, name string) *Node {
+func (r *RedisRegistry) getNode(notify func(*Notification), name string) *Node {
 	var node *Node
 	raw, loaded := r.nodes.Load(name)
 	for {
@@ -192,12 +192,12 @@ func (r *RedisRegistry) getNode(notify chan *Notification, name string) *Node {
 			if loaded {
 				continue
 			}
-            if notify != nil {
-                notify <- &Notification{
-                    Event: EVENT_NODE_FOCUS,
-                    Name: name,
-                }
-            }
+			if notify != nil {
+				notify(&Notification{
+					Event: EVENT_NODE_FOCUS,
+					Name:  name,
+				})
+			}
 		}
 		break
 	}
@@ -248,52 +248,60 @@ func (r *RedisRegistry) VisitServices(fn func(name string, svc Service) bool) {
 	})
 }
 
-func updateMetadata(notify chan *Notification, node *Node, meta map[string]string) {
-    if notify == nil {
-        node.Metadata = meta
-    }
-    if node.Metadata == nil {
-        node.Metadata = meta
-        for k, _ := range meta {
-            notify <- &Notification{
-                Event: EVENT_NODE_METADATA_KEY_ADD,
-                Name: k,
-                Node: node,
-            }
-        }
-        return
-    }
-    for k, _ := range node.Metadata {
-        _, ok := meta[k]
-        if !ok {
-            delete(node.Metadata, k)
-            notify <- &Notification {
-                Event: EVENT_NODE_METADATA_KEY_DEL,
-                Name: k,
-                Node: node,
-            }
-        }
-    }
-    for k, v := range meta {
-        old, ok := node.Metadata[k]
-        node.Metadata[k] = v
-        if !ok {
-            notify <- &Notification {
-                Event: EVENT_NODE_METADATA_KEY_ADD,
-                Name: k,
-                Node: node,
-            }
-        } else if v != old {
-            notify <- &Notification {
-                Event: EVENT_NODE_METADATA_KEY_CHANGED,
-                Name: k,
-                Node: node,
-            }
-        }
-    }
+func updateMetadata(notify func(*Notification), node *Node, meta map[string]string) {
+	if notify == nil {
+		node.Metadata = meta
+	}
+	if node.Metadata == nil {
+		node.Metadata = meta
+		if notify != nil {
+			for k, _ := range meta {
+				notify(&Notification{
+					Event: EVENT_NODE_METADATA_KEY_ADD,
+					Name:  k,
+					Node:  node,
+				})
+			}
+		}
+		return
+	}
+	for k, _ := range node.Metadata {
+		_, ok := meta[k]
+		if !ok {
+			delete(node.Metadata, k)
+			if notify != nil {
+				notify(&Notification{
+					Event: EVENT_NODE_METADATA_KEY_DEL,
+					Name:  k,
+					Node:  node,
+				})
+			}
+		}
+	}
+	for k, v := range meta {
+		old, ok := node.Metadata[k]
+		node.Metadata[k] = v
+		if !ok {
+			if notify != nil {
+				notify(&Notification{
+					Event: EVENT_NODE_METADATA_KEY_ADD,
+					Name:  k,
+					Node:  node,
+				})
+			}
+		} else if v != old {
+			if notify != nil {
+				notify(&Notification{
+					Event: EVENT_NODE_METADATA_KEY_CHANGED,
+					Name:  k,
+					Node:  node,
+				})
+			}
+		}
+	}
 }
 
-func (r *RedisRegistry) resolveNodes(notify chan *Notification, conn redis.Conn) error {
+func (r *RedisRegistry) resolveNodes(notify func(*Notification), conn redis.Conn) error {
 	var (
 		err  error
 		meta map[string]string
@@ -317,22 +325,24 @@ func (r *RedisRegistry) resolveNodes(notify chan *Notification, conn redis.Conn)
 
 	for idx := range focusNames {
 		if meta, err = redis.StringMap(conn.Receive()); err != nil {
-            if err != redis.ErrNil {
-			    return err
-            } else {
-                r.nodes.Delete(focusNames[idx])
-                notify <- &Notification{
-                    Name: focusNames[idx],
-                    Event: EVENT_NODE_LOST,
-                }
-            }
+			if err != redis.ErrNil {
+				return err
+			} else {
+				r.nodes.Delete(focusNames[idx])
+				if notify != nil {
+					notify(&Notification{
+						Name:  focusNames[idx],
+						Event: EVENT_NODE_LOST,
+					})
+				}
+			}
 		}
 		node, name := focusNodes[idx], focusNames[idx]
 		if node == nil {
 			node, _ = r.Node(name)
 		}
 		node.Name = name
-        updateMetadata(notify, node, meta)
+		updateMetadata(notify, node, meta)
 	}
 
 	return nil
@@ -397,12 +407,11 @@ func (s *RedisServiceEntry) VisitNodes(fn func(node string) bool) {
 	})
 }
 
-func (s *RedisServiceEntry) poll(notify chan *Notification, conn redis.Conn) (bool, error) {
+func (s *RedisServiceEntry) poll(notify func(*Notification), conn redis.Conn) (bool, error) {
 	updated := false
 	var err error
 
 	nodes, err := redis.Strings(conn.Do("SMEMBERS", s.registry.prefix+"{dig-service-"+s.name+"-node}"))
-
 
 	if err != nil {
 		if err != redis.ErrNil {
@@ -414,12 +423,12 @@ func (s *RedisServiceEntry) poll(notify chan *Notification, conn redis.Conn) (bo
 			if !ok {
 				updated = true
 				s.nodes.LoadOrStore(nodes[idx], struct{}{})
-                if notify != nil {
-                    notify <- &Notification{
-                        Event: EVENT_SVC_NODE_FOUND,
-                        Name: nodes[idx],
-                    }
-                }
+				if notify != nil {
+					notify(&Notification{
+						Event: EVENT_SVC_NODE_FOUND,
+						Name:  nodes[idx],
+					})
+				}
 			}
 		}
 	}
@@ -444,31 +453,31 @@ func (s *RedisServiceEntry) poll(notify chan *Notification, conn redis.Conn) (bo
 		if err != nil {
 			if err == redis.ErrNil {
 				s.nodes.Delete(focusNodes[idx])
-                if notify != nil {
-                    notify <- &Notification{
-                        Event: EVENT_SVC_NODE_LOST,
-                        Name: focusNodes[idx],
-                    }
-                }
+				if notify != nil {
+					notify(&Notification{
+						Event: EVENT_SVC_NODE_LOST,
+						Name:  focusNodes[idx],
+					})
+				}
 				conn.Send("SREM", s.registry.prefix+"{dig-service-"+s.name+"-node}", focusNodes[idx])
-                count++
+				count++
 				updated = true
 			} else {
 				return updated, err
 			}
 		}
 	}
-    if count > 0 {
-	    if err = conn.Flush(); err != nil {
-		    return updated, err
-	    }
-	    for count > 0 {
-		    if _, err = conn.Receive(); err != nil {
-			    return updated, err
-		    }
-		    count--
-        }
-    }
+	if count > 0 {
+		if err = conn.Flush(); err != nil {
+			return updated, err
+		}
+		for count > 0 {
+			if _, err = conn.Receive(); err != nil {
+				return updated, err
+			}
+			count--
+		}
+	}
 
 	// Publish
 	focusNodes = focusNodes[0:0]
@@ -493,11 +502,11 @@ func (s *RedisServiceEntry) poll(notify chan *Notification, conn redis.Conn) (bo
 		}
 	}
 
-    // set focus.
-    s.VisitNodes(func (name string) bool {
-        s.registry.getNode(notify, name)
-        return true
-    })
+	// set focus.
+	s.VisitNodes(func(name string) bool {
+		s.registry.getNode(notify, name)
+		return true
+	})
 
 	if updated {
 		s.sig.Broadcast()
