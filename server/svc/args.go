@@ -18,8 +18,8 @@ type ServiceOptions struct {
 	// RPC endpoint. Connected by Linker Gateway and other conpoments.
 	Endpoint *cmdline.NetEndpointValue
 
-    // RPC Publish.
-    RPCPublish  *cmdline.NetEndpointValue
+	// RPC Publish.
+	RPCPublish *cmdline.NetEndpointValue
 
 	// Redis prefix.
 	// All the name of redis key will be add prefix.
@@ -29,7 +29,6 @@ type ServiceOptions struct {
 	// Cache timeout.
 	// 0 means infinite timeout.
 	CacheTimeout *cmdline.UintValue
-
 
 	// Persistent storage endpoint to persist sessions and messages.
 	//PersistStorageEndpoint *cmdline.NetEndpointValue
@@ -72,12 +71,12 @@ func (opt *ServiceOptions) SetDefault() error {
 	if opt.CacheTimeout.Value < 0 {
 		ilog.Warnf("Cache timeout should not be nagtive. Set to 0.", opt.CacheTimeout.Value)
 	}
-    if opt.RPCPublish.Port == 0 || opt.RPCPublish.Port > 0xFFFF {
-        opt.RPCPublish.Port = opt.Endpoint.Port
-    }
-    if opt.RPCPublish.Host == "localhost" || opt.RPCPublish.Host == "127.0.0.1" {
-        ilog.Warn("Publish local address: " + opt.RPCPublish.String())
-    }
+	if opt.RPCPublish.Port == 0 || opt.RPCPublish.Port > 0xFFFF {
+		opt.RPCPublish.Port = opt.Endpoint.Port
+	}
+	if opt.RPCPublish.Host == "localhost" || opt.RPCPublish.Host == "127.0.0.1" {
+		ilog.Warn("Publish local address: " + opt.RPCPublish.String())
+	}
 	return nil
 }
 
@@ -99,24 +98,24 @@ func configureParse() (*ServiceOptions, error) {
 	//	ilog.Panicf(FLAGS_CREATING_FAILURE, err.Error())
 	//	return nil, err
 	//}
-    if publish, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "127.0.0.1:0"); err != nil {
+	if publish, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "127.0.0.1:0"); err != nil {
 		ilog.Panicf(FLAGS_CREATING_FAILURE, err.Error())
 		return nil, err
-    }
+	}
 
 	options := &ServiceOptions{
-		LogLevel:               cmdline.NewUintValueDefault(0),
-		CacheTimeout:           cmdline.NewUintValueDefault(0),
-		Endpoint:               RPCEndpoint,
-		RedisEndpoint:          redisEndpoint,
-		RedisPrefix:            cmdline.NewStringValueDefault("linker_svc"),
+		LogLevel:      cmdline.NewUintValueDefault(0),
+		CacheTimeout:  cmdline.NewUintValueDefault(0),
+		Endpoint:      RPCEndpoint,
+		RedisEndpoint: redisEndpoint,
+		RedisPrefix:   cmdline.NewStringValueDefault("linker_svc"),
 		//PersistStorageEndpoint: persistEndpoint,
 		//DisableSessionPersist:  cmdline.NewBoolValueDefault(false),
 		//DisableMessagePersist:  cmdline.NewBoolValueDefault(false),
 		//FailOnPersistFailure:   cmdline.NewBoolValueDefault(true),
 		//AsyncSessionPersist:    cmdline.NewBoolValueDefault(false),
 		//AsyncMessagePersist:    cmdline.NewBoolValueDefault(true),
-        RPCPublish:                publish,
+		RPCPublish: publish,
 	}
 
 	flag.Var(options.LogLevel, "log-level", "Log level.")
@@ -129,7 +128,7 @@ func configureParse() (*ServiceOptions, error) {
 	//flag.Var(options.FailOnPersistFailure, "fail-on-persist-failure", "Reject all session options when persistent storage fails.")
 	//flag.Var(options.AsyncMessagePersist, "async-message-persist", "Persist messages asynchronously.")
 	//flag.Var(options.AsyncSessionPersist, "async-session-persist", "Persist session asynchronously.")
-    flag.Var(options.RPCPublish, "rpc-publish", "Published RPC endpoint.")
+	flag.Var(options.RPCPublish, "rpc-publish", "Published RPC endpoint.")
 
 	flag.Parse()
 
@@ -137,7 +136,7 @@ func configureParse() (*ServiceOptions, error) {
 		return nil, err
 	}
 
-    ilog.Info0("Configurations:")
+	ilog.Info0("Configurations:")
 	flag.VisitAll(func(fl *flag.Flag) {
 		ilog.Info0("-" + fl.Name + "=" + fl.Value.String())
 	})

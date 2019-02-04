@@ -10,7 +10,7 @@ func (g *Gate) InitService() error {
 	var err error
 
 	log.Info0("Create service load balancer.")
-    g.LB = NewLB()
+	g.LB = NewLB()
 
 	log.Info0("Redis connection pooling.")
 	g.Redis = &redis.Pool{

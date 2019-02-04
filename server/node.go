@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	guuid "github.com/satori/go.uuid"
 	"strings"
 )
@@ -24,4 +25,8 @@ func (n *NodeID) AsKey() string {
 
 func (n *NodeID) Assign(id *NodeID) {
 	copy(n[:], id[:])
+}
+
+func (n *NodeID) FromString(raw string) error {
+	return errors.New("Not implemented.")
 }

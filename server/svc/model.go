@@ -125,7 +125,7 @@ func (m *Model) getMetadata(key string, mapKeys []string) ([][]byte, error) {
 
 func (m *Model) GetNamespaceMetadata(namespaces []string) ([]*NamespaceMetadata, error) {
 	bins, err := m.getMetadata("namespaces", namespaces)
-    if err != nil {
+	if err != nil {
 		return nil, err
 	}
 	metas := make([]*NamespaceMetadata, len(namespaces), len(namespaces))
@@ -144,7 +144,7 @@ func (m *Model) GetNamespaceMetadata(namespaces []string) ([]*NamespaceMetadata,
 
 func (m *Model) GetGroupMetadata(namespace string, groups []string) ([]*GroupMetadata, error) {
 	bins, err := m.getMetadata("groups."+namespace, groups)
-    if err != nil {
+	if err != nil {
 		return nil, err
 	}
 	metas := make([]*GroupMetadata, len(groups), len(groups))
@@ -163,7 +163,7 @@ func (m *Model) GetGroupMetadata(namespace string, groups []string) ([]*GroupMet
 
 func (m *Model) GetUserMetadata(namespace string, users []string) ([]*UserMetadata, error) {
 	bins, err := m.getMetadata("users."+namespace, users)
-    if err != nil {
+	if err != nil {
 		return nil, err
 	}
 	metas := make([]*UserMetadata, len(users), len(users))

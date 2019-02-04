@@ -12,6 +12,6 @@ type MessageBody struct {
 }
 
 type Message struct {
-	ID    *MessageIdentifier
-    Body  MessageBody
+	ID   *MessageIdentifier
+	Body MessageBody
 }

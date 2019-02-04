@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
+	sc "github.com/Sunmxt/linker-im/server/svc/client"
 	gmux "github.com/gorilla/mux"
 	guuid "github.com/satori/go.uuid"
 	"io"
@@ -28,7 +29,8 @@ type APIRequestContext struct {
 	CodeMessage string
 	Data        interface{}
 
-	RPC        *ServiceRPCClient
+	RPC        *sc.ServiceClient
+	node       *ServiceNode
 	StatusCode int
 	Namespace  string
 	Group      string
@@ -36,9 +38,8 @@ type APIRequestContext struct {
 	Log *log.Logger
 }
 
-
 func NewRequestContext(w http.ResponseWriter, req *http.Request, ireq interface{}) (*APIRequestContext, error) {
-    ctx, buf := NewEmptyAPIRequestContext(w, req), make([]byte, req.ContentLength)
+	ctx, buf := NewEmptyAPIRequestContext(w, req), make([]byte, req.ContentLength)
 
 	readc, err := io.ReadFull(req.Body, buf)
 	ctx.Log.DebugLazy(func() string {
@@ -47,18 +48,18 @@ func NewRequestContext(w http.ResponseWriter, req *http.Request, ireq interface{
 	ctx.Log.TraceLazy(func() string {
 		return "Request body: " + string(buf)
 	})
-    if err != nil {
-        ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
-        return nil, err
-    }
-    if err = json.Unmarshal(buf, ireq); err != nil {
-        ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
-        return nil, err
-    }
-    if err = ctx.initializeContext(); err != nil {
-        return nil, err
-    }
-    return ctx, nil
+	if err != nil {
+		ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
+		return nil, err
+	}
+	if err = json.Unmarshal(buf, ireq); err != nil {
+		ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
+		return nil, err
+	}
+	if err = ctx.initializeContext(); err != nil {
+		return nil, err
+	}
+	return ctx, nil
 }
 
 func NewEmptyAPIRequestContext(w http.ResponseWriter, req *http.Request) *APIRequestContext {
@@ -106,22 +107,26 @@ func (ctx *APIRequestContext) ParseTimeout() error {
 	return nil
 }
 
-func (ctx *APIRequestContext) BeginRPC() (*ServiceRPCClient, error) {
+func (ctx *APIRequestContext) BeginRPC() (*sc.ServiceClient, error) {
 	var err error
-	if ctx.EnableTimeout {
-		ctx.RPC, err = NewServiceRPCClient(ctx.Timeout)
-	} else {
-		ctx.RPC, err = TryNewServiceRPCClient()
+	ctx.node, err = gate.LB.RoundRobinSelect()
+	if err != nil {
+		return nil, err
 	}
-
+	if ctx.EnableTimeout {
+		ctx.RPC, err = ctx.node.Connect(ctx.Timeout)
+	} else {
+		ctx.RPC, err = ctx.node.TryConnect()
+	}
 	return ctx.RPC, err
 }
 
 func (ctx *APIRequestContext) EndRPC(err error) {
-	if ctx.RPC != nil {
-		ctx.RPC.Close(err)
+	if ctx.RPC != nil && ctx.node != nil {
+		ctx.node.Disconnect(ctx.RPC, err)
 	}
 	ctx.RPC = nil
+	ctx.node = nil
 }
 
 func (ctx *APIRequestContext) ParseNamespace() {
@@ -134,14 +139,14 @@ func (ctx *APIRequestContext) ParseNamespace() {
 }
 
 func (ctx *APIRequestContext) WriteJson(resp interface{}) error {
-    raw, err := json.Marshal(resp)
-    if err != nil {
-        return err
-    }
-    if _, err = ctx.Writer.Write(raw); err != nil {
-        return err
-    }
-    return nil
+	raw, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	if _, err = ctx.Writer.Write(raw); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (ctx *APIRequestContext) ResponseError(code uint32, msg string) {
@@ -169,28 +174,28 @@ func (ctx *APIRequestContext) Finalize() {
 		}
 
 		// Try to return error with API Format.
-        if err = ctx.WriteJson(proto.HTTPListResponse{
-			APIVersion:   1,
-			Data:         nil,
-			Code:         proto.SERVER_INTERNAL_ERROR,
-			ErrorMessage: ctx.CodeMessage,
+		if err = ctx.WriteJson(proto.HTTPResponse{
+			Version: 1,
+			Data:    nil,
+			Code:    proto.SERVER_INTERNAL_ERROR,
+			Msg:     ctx.CodeMessage,
 		}); err != nil {
-		    // Fallback to HTTP 500
+			// Fallback to HTTP 500
 			http.Error(ctx.Writer, ctx.CodeMessage, 500)
-        }
-    } else {
+		}
+	} else {
 		if ctx.CodeMessage == "" {
 			// Set default message.
 			ctx.CodeMessage = proto.ErrorCodeText(ctx.Code)
 		}
-        if err = ctx.WriteJson(proto.HTTPResponse{
-		    APIVersion:   ctx.Version,
-			Data:         ctx.Data,
-			Code:         ctx.Code,
-			ErrorMessage: ctx.CodeMessage,
-        }) ; err != nil {
-            ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "JSON marshal failure (" + err.Error() + ").")
-        }
+		if err = ctx.WriteJson(proto.HTTPResponse{
+			Version: ctx.Version,
+			Data:    ctx.Data,
+			Code:    ctx.Code,
+			Msg:     ctx.CodeMessage,
+		}); err != nil {
+			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "JSON marshal failure ("+err.Error()+").")
+		}
 	}
 
 	ctx.EndRPC(nil)
@@ -202,10 +207,10 @@ func EntityAlter(w http.ResponseWriter, req *http.Request) {
 }
 
 func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
-	var rpcClient *ServiceRPCClient
-    var req proto.EntityAlterV1
+	var rpcClient *sc.ServiceClient
+	var ireq proto.EntityAlterV1
 
-	ctx, err := NewAPIListRequestContext(w, req, &req)
+	ctx, err := NewRequestContext(w, req, &ireq)
 	if err != nil {
 		return
 	}
@@ -218,9 +223,9 @@ func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 
 	switch ctx.Req.Method {
 	case "POST":
-		err = rpcClient.NamespaceAdd(req.Entities)
+		err = rpcClient.NamespaceAdd(ireq.Entities)
 	case "DELETE":
-		err = rpcClient.NamespaceRemove(req.Entities)
+		err = rpcClient.NamespaceRemove(ireq.Entities)
 	default:
 		ctx.StatusCode = 400
 		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid operation")
@@ -240,10 +245,10 @@ func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
 }
 
 func ListNamespace(w http.ResponseWriter, req *http.Request) {
-	var rpcClient *ServiceRPCClient
+	var rpcClient *sc.ServiceClient
 	var namespaces []string
 
-	ctx, err := NewAPIListRequestContext(w, req)
+	ctx, err := NewRequestContext(w, req)
 	if err != nil {
 		return
 	}
@@ -298,7 +303,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		msg      []proto.Message
 	)
 
-	ctx, err := NewAPIMapRequestContext(w, req)
+	ctx, err := NewRequestContext(w, req)
 	if err != nil {
 		return
 	}
@@ -376,7 +381,7 @@ func (g *Gate) InitHTTP() error {
 	log.Info0("Register HTTP endpoint \"/namespace\"")
 	g.Router.HandleFunc("/namespace", NamespaceOperate).Methods("POST", "DELETE")
 	g.Router.HandleFunc("/namespace", ListNamespace).Methods("GET")
-    g.Router.HandleFunc("/namespace", EntityAlter).Methods("POST", "DELETE")
+	g.Router.HandleFunc("/namespace", EntityAlter).Methods("POST", "DELETE")
 
 	log.Info0("Register HTTP endpoint \"/group\"")
 	g.Router.HandleFunc("/group", ListGroup).Methods("GET")

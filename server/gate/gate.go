@@ -14,19 +14,18 @@ var Config *GatewayOptions
 var NodeID server.NodeID
 
 type Gate struct {
-	config *GatewayOptions
-	ID     server.NodeID
-	HTTP   *http.Server
-	Router *gmux.Router
+	config    *GatewayOptions
+	ID        server.NodeID
+	HTTP      *http.Server
+	Router    *gmux.Router
 	RPCRouter *gmux.Router
 	RPC       *http.Server
-	LB  *ServiceLB
-	Dig     dig.Registry
-	Node    *dig.Node
-	Redis *redis.Pool
-	Hub *Hub
-	fatal chan error
-    discover chan *dig.Notification
+	LB        *ServiceLB
+	Dig       dig.Registry
+	Node      *dig.Node
+	Redis     *redis.Pool
+	Hub       *Hub
+	fatal     chan error
 }
 
 var gate *Gate
@@ -73,8 +72,7 @@ func (g *Gate) Run() {
 
 	go g.ServeHTTP()
 	go g.ServeRPC()
-	go g.Dig()
-    go g.DigService()
+	go g.Discover()
 	go g.Routing()
 
 	if err = <-g.fatal; err != nil {

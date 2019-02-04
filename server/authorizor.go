@@ -4,7 +4,7 @@ package server
 // according to provided credentials.
 type Authorizor interface {
 	Auth(credentials map[string]string, args ...interface{}) error // Auth with credentials
-	Identity() string                                                                  // Return authorizor identifier.
+	Identity() string                                              // Return authorizor identifier.
 }
 
 // And Combinator

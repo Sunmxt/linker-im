@@ -26,13 +26,13 @@ func ErrorCodeText(code uint32) string {
 }
 
 type HTTPResponse struct {
-    Version uint32          `json:"ver"`
-    Data    interface{}     `json:"data"`
-    Code    uint32          `json:"code"`
-    Msg     string          `json:"msg"`
+	Version uint32      `json:"ver"`
+	Data    interface{} `json:"data"`
+	Code    uint32      `json:"code"`
+	Msg     string      `json:"msg"`
 }
 
 type EntityAlterV1 struct {
-    Version     uint32          `json:"ver"`
-    Entities    []string        `json:"args"`
+	Version  uint32   `json:"ver"`
+	Entities []string `json:"args"`
 }
