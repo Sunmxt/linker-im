@@ -2,6 +2,8 @@ package gate
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/server"
 	sc "github.com/Sunmxt/linker-im/server/svc/client"
@@ -34,8 +36,8 @@ type ServiceNode struct {
 }
 
 func OpenServiceNode(id server.NodeID, name, address, rpcPath string, maxConcurrentRequest, maxConnection int) *ServiceNode {
-	n := ServiceNode{
-		Name, name,
+	n := &ServiceNode{
+		Name:    name,
 		id:      id,
 		addr:    address,
 		rpcPath: rpcPath,
@@ -63,13 +65,13 @@ func connectServiceClient(helper func() (*pool.Drip, error)) (*sc.ServiceClient,
 
 func (n *ServiceNode) Connect(timeout uint32) (*sc.ServiceClient, error) {
 	return connectServiceClient(func() (*pool.Drip, error) {
-		return n.pool.Get(true, timeout)
+		return n.clients.Get(true, timeout)
 	})
 }
 
 func (n *ServiceNode) TryConnect() (*sc.ServiceClient, error) {
 	return connectServiceClient(func() (*pool.Drip, error) {
-		return n.pool.Get(false, 0)
+		return n.clients.Get(false, 0)
 	})
 }
 
@@ -81,18 +83,23 @@ func (n *ServiceNode) Disconnect(conn *sc.ServiceClient, err error) {
 	drip.Release(err)
 }
 
+func (n *ServiceNode) Close() {
+	n.clients.Close()
+}
+
 func (n *ServiceNode) Keepalive(event chan *ServiceNodeEvent) error {
-	conn, err, old, state := n.Connect(), n.State, NODE_UNAVALIABLE
+	conn, err := n.Connect(0)
+	old, state := n.State, NODE_UNAVALIABLE
 	defer func() {
 		if event != nil {
-			event <- &ServiceNodeStateEvent{
+			event <- &ServiceNodeEvent{
 				Node:     n,
 				OldState: old,
 				NewState: state,
 			}
 		}
 		n.State = state
-		conn.Disconnect(client, err)
+		n.Disconnect(conn, err)
 	}()
 	if err != nil {
 		return err
@@ -133,19 +140,19 @@ func (n *ServiceNode) Destroy(x interface{}) {
 func (n *ServiceNode) Notify(ctx *pool.NotifyContext) {
 	switch ctx.Event {
 	case pool.POOL_NEW:
-		log.Info0("Pool created for service node \"" + ctx.Name + "\".")
+		log.Info0("Pool created for service node \"" + n.Name + "\".")
 	case pool.POOL_NEW_DRIP:
-		log.Infof0("New connection for service node \""+ctx.Name+"\". [dripCount = %v]", ctx.DripCount)
+		log.Infof0("New connection for service node \""+n.Name+"\". [dripCount = %v]", ctx.DripCount)
 	case pool.POOL_DESTROY_DRIP:
-		log.Infof0("Close connection of service node \""+ctx.Name+"\". [dripCount = %v]", ctx.DripCount)
+		log.Infof0("Close connection of service node \""+n.Name+"\". [dripCount = %v]", ctx.DripCount)
 	case pool.POOL_REMOVE_DRIP:
-		log.Infof0("Remove connection from pool of service node \""+ctx.Name+"\". [dripCount = %v]", ctx.DripCount)
+		log.Infof0("Remove connection from pool of service node \""+n.Name+"\". [dripCount = %v]", ctx.DripCount)
 	case pool.POOL_NEW_DRIP_FAILURE:
-		log.Infof0("Failure occurs when connect to service node \""+ctx.Name+"\", [dripCoun = %v]", ctx.DripCount)
+		log.Infof0("Failure occurs when connect to service node \""+n.Name+"\", [dripCoun = %v]", ctx.DripCount)
 	}
 
 	log.DebugLazy(func() string { return ctx.String() })
-	log.DebugLazy(func() string { return fmt.Sprintf("pool:%v", ep.clients) })
+	log.DebugLazy(func() string { return fmt.Sprintf("pool:%v", n.clients) })
 }
 
 // Hash

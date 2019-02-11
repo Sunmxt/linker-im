@@ -31,8 +31,9 @@ func (svc *Service) Discover() {
 	svc.Node = &dig.Node{
 		Name: "svc-" + svc.ID.String(),
 		Metadata: map[string]string{
-			"linker-rpc": svc.Config.RPCPublish.String(),
-			"linker-id":  svc.ID.String(),
+			"linker-rpc":    svc.Config.RPCPublish.String(),
+			"linker-nodeid": svc.ID.String(),
+			"linker-role":   "svc",
 		},
 	}
 	isvc.Publish(svc.Node)

@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// Errors
+var ErrInvalidNodeIDString = errors.New("Invalid ID string.")
+
 // Node ID
 type NodeID guuid.UUID
 
@@ -28,5 +31,5 @@ func (n *NodeID) Assign(id *NodeID) {
 }
 
 func (n *NodeID) FromString(raw string) error {
-	return errors.New("Not implemented.")
+	return (*guuid.UUID)(n).UnmarshalText([]byte(raw))
 }

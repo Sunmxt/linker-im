@@ -31,7 +31,7 @@ func (c *ServiceClient) Push(msgs []proto.MessageBody) ([]proto.PushResult, erro
 
 func (c *ServiceClient) listEntity(namespace string, entityType uint8) ([]string, error) {
 	reply := proto.EntityListReply{}
-	if err := c.Client.Call("ServiceRPC.EntityList", &proto.EntityListArguments{
+	if err := c.Client.Call("ServiceRPC.EntityList", proto.EntityListArguments{
 		Type:      entityType,
 		Namespace: namespace,
 	}, &reply); err != nil {
@@ -39,6 +39,9 @@ func (c *ServiceClient) listEntity(namespace string, entityType uint8) ([]string
 	}
 	if reply.Msg != "" {
 		return nil, errors.New(reply.Msg)
+	}
+	if reply.Entities == nil {
+		reply.Entities = make([]string, 0)
 	}
 	return reply.Entities, nil
 }

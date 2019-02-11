@@ -17,11 +17,11 @@ func (g *Gate) openDigService(name string) dig.Service {
 	)
 
 	for {
-		svc, err = g.Dig.Service(proto.DIG_GATE_SERVICE_NAME)
+		svc, err = g.Dig.Service(name)
 		if err != nil {
-			log.Error("Cannot open service \"" + proto.DIG_GATE_SERVICE_NAME + "\": " + err.Error())
+			log.Error("Cannot open service \"" + name + "\": " + err.Error())
 		} else if svc == nil {
-			log.Error("Nil value of service \"" + proto.DIG_GATE_SERVICE_NAME + "\".")
+			log.Error("Nil value of service \"" + name + "\".")
 		} else {
 			break
 		}
@@ -37,35 +37,32 @@ func (g *Gate) addServiceNode(notify *dig.Notification) {
 	)
 	rawID, ok := notify.Node.Metadata["linker-nodeid"]
 	if !ok {
-		log.Info0("ID of node \"" + notify.Node.Name + "\" is missing. Skip.")
+		log.Info2("ID of node \"" + notify.Node.Name + "\" is missing. Skip.")
+		return
 	}
 	rpc, ok = notify.Node.Metadata["linker-rpc"]
 	if !ok {
-		log.Info0("RPC endpoint of node \"" + notify.Node.Name + "\" is missing. Skip.")
+		log.Info2("RPC endpoint of node \"" + notify.Node.Name + "\" is missing. Skip.")
+		return
 	}
 	if err := ID.FromString(rawID); err != nil {
 		log.Warn("Invalid ID of node \"" + notify.Node.Name + "\". skip.")
+		return
 	}
-	log.Info0("Add node \"" + notify.Node.Name + "\" with ID \"" + rawID + "\" to load balancer. Endpoint is \"" + rpc + "\".")
-	g.LB.AddNode(notify.Node.Name, OpenServiceNode(ID, notify.Node.Name, rpc, proto.RPC_PATH, runtime.NumCPU(), runtime.NumCPU()))
-}
-
-func (g *Gate) removeServiceNode(notify *dig.Notification) {
-	log.Info0("Remove node \"" + notify.Node.Name)
-	g.LB.RemoveNode(notify.Node.Name)
+	if g.LB.Node(notify.Node.Name) == nil {
+		log.Info0("Add node \"" + notify.Node.Name + "\" with ID \"" + rawID + "\" to load balancer. Endpoint is \"" + rpc + "\".")
+		g.LB.AddNode(notify.Node.Name, OpenServiceNode(ID, notify.Node.Name, rpc, proto.RPC_PATH, runtime.NumCPU(), runtime.NumCPU()))
+	}
 }
 
 func (g *Gate) Discover() {
-	var (
-		svc dig.Service
-		err error
-	)
+	var svc, svcSvc dig.Service
 
 	log.Info0("Start node discovery.")
 
 	svc = g.openDigService(proto.DIG_GATE_SERVICE_NAME)
 	log.Info0("Service \"" + proto.DIG_GATE_SERVICE_NAME + "\" opened. Start node discovery.")
-	g.openDigService(proto.DIG_SERVICE_NAME)
+	svcSvc = g.openDigService(proto.DIG_SERVICE_NAME)
 	log.Info0("Service \"" + proto.DIG_SERVICE_NAME + "\" opened. Start node discovery.")
 
 	g.Node = &dig.Node{
@@ -73,6 +70,7 @@ func (g *Gate) Discover() {
 		Metadata: map[string]string{
 			"linker-rpc":    g.config.RPCPublishEndpoint.String(),
 			"linker-nodeid": NodeID.String(),
+			"linker-role":   "gate",
 		},
 		Timeout: 300,
 	}
@@ -83,34 +81,48 @@ func (g *Gate) Discover() {
 		changed, err := g.Dig.Poll(func(notify *dig.Notification) {
 			switch notify.Event {
 			case dig.EVENT_NODE_FOCUS:
-				log.Info0("Watch node \"" + notify.Node.Name + "\" of service \"" + notify.Name + "\".")
+				log.Info0("Watch node \"" + notify.Name + "\"")
+
 			case dig.EVENT_SVC_NODE_FOUND:
-				log.Info0("Discover node \"" + notify.Node.Name + "\" of service \"" + notify.Name + "\".")
+				log.Info0("Discover node \"" + notify.Name + "\" of service \"" + notify.Service.Name() + "\".")
+
+			case dig.EVENT_NODE_LOST:
+				log.Info0("Node \"" + notify.Name + "\" lost.")
+				g.LB.RemoveNode(notify.Name)
+
 			case dig.EVENT_NODE_METADATA_KEY_ADD:
-				if notify.Name == "linker-nodeid" || notify.Name == "linker-rpc" {
+				role, ok := notify.Node.Metadata["linker-role"]
+				if ok && role == "svc" && (notify.Name == "linker-nodeid" || notify.Name == "linker-rpc" || notify.Name == "linker-role") {
 					g.addServiceNode(notify)
 				}
+
 			case dig.EVENT_NODE_METADATA_KEY_CHANGED:
-				if notify.Name == "linker-nodeid" || notify.Name == "linker-rpc" {
-					g.removeServiceNode(notify)
+				role, ok := notify.Node.Metadata["linker-role"]
+				if ok && role == "svc" && (notify.Name == "linker-nodeid" || notify.Name == "linker-rpc" || notify.Name == "linker-role") {
+					g.LB.RemoveNode(notify.Node.Name)
 					g.addServiceNode(notify)
 				}
+
 			case dig.EVENT_NODE_METADATA_KEY_DEL:
-				if notify.Name == "linker-nodeid" || notify.Name == "linker-rpc" {
-					g.removeServiceNode(notify)
+				role, ok := notify.Node.Metadata["linker-role"]
+				if ok && role == "svc" && (notify.Name == "linker-nodeid" || notify.Name == "linker-rpc" || notify.Name == "linker-role") {
+					log.Info0("Remove node \"" + notify.Node.Name + "for absent \"" + notify.Name + "\"")
 				}
 			}
-
 		})
 		if err != nil {
 			log.Error("Dig polling failure: " + err.Error())
 		}
 		if changed {
 			log.Info2("Dig state changed.")
-			log.Info0("Nodes of service \"" + proto.DIG_GATE_SERVICE_NAME + "linker-gateway\": " + strings.Join(svc.Nodes(), ",") + ".")
+			log.Info0("Nodes of service \"" + proto.DIG_GATE_SERVICE_NAME + "\": " + strings.Join(svc.Nodes(), ",") + ".")
+			log.Info0("Nodes of service \"" + proto.DIG_SERVICE_NAME + "\": " + strings.Join(svcSvc.Nodes(), ",") + ".")
 		}
 		log.DebugLazy(func() string {
 			return "Nodes of service \"" + proto.DIG_GATE_SERVICE_NAME + "linker-gateway\": " + strings.Join(svc.Nodes(), ",") + "."
+		})
+		log.DebugLazy(func() string {
+			return "Nodes of service \"" + proto.DIG_SERVICE_NAME + "linker-gateway\": " + strings.Join(svcSvc.Nodes(), ",") + "."
 		})
 		time.Sleep(time.Second)
 	}

@@ -74,6 +74,7 @@ func (g *Gate) Run() {
 	go g.ServeRPC()
 	go g.Discover()
 	go g.Routing()
+	go g.Keepalive()
 
 	if err = <-g.fatal; err != nil {
 		log.Fatal(err.Error())

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 )
 
-var ErrNodeMissing = errors.New("No avaliable endpoint.")
+var ErrNodeMissing = errors.New("load balancer: No avaliable RPC endpoint.")
 var ErrNodeType = errors.New("Wrong type of endpoint.")
 
 type ServiceLB struct {
@@ -26,11 +26,17 @@ type ServiceLB struct {
 
 func NewLB() *ServiceLB {
 	return &ServiceLB{
-		ring:   server.NewEmptyHashRing(),
-		event:  make(chan *ServiceNodeEvent),
-		closed: false,
-		stop:   make(chan struct{}, 1),
+		ring:     server.NewEmptyHashRing(),
+		event:    make(chan *ServiceNodeEvent),
+		stop:     make(chan struct{}, 1),
+		FromName: make(map[string]*ServiceNode),
 	}
+}
+
+func (lb *ServiceLB) Node(name string) *ServiceNode {
+	lb.lock.RLock()
+	defer lb.lock.RUnlock()
+	return lb.FromName[name]
 }
 
 func (lb *ServiceLB) AddNode(name string, node *ServiceNode) error {
@@ -51,11 +57,13 @@ func (lb *ServiceLB) RemoveNode(name string) {
 		return
 	}
 	lb.ring.RemoveHash(node.Hash())
+	delete(lb.FromName, name)
+	go node.Close()
 }
 
 func (lb *ServiceLB) Keepalive() {
 	lb.lock.RLock()
-	defer lb.lock.RLock()
+	defer lb.lock.RUnlock()
 	count := 0
 	for k, node := range lb.FromName {
 		log.Info2("Keepalive routine of node \"" + k + "\" starts.")
@@ -74,19 +82,19 @@ func (lb *ServiceLB) Keepalive() {
 			event := <-lb.event
 			if event.OldState != event.NewState {
 				switch event.OldState {
-				case NODE_AVALIABLE:
-					log.Info2("Node \"" + event.Node.Name + "\" becomes avaliable.")
+				case NODE_UNAVALIABLE:
+					log.Info0("Node \"" + event.Node.Name + "\" becomes avaliable.")
 					lb.ring.Append(event.Node)
 
-				case NODE_UNAVALIABLE:
-					log.Info2("Node \"" + event.Node.Name + "\" becomes unavaliable.")
+				case NODE_AVALIABLE:
+					log.Info0("Node \"" + event.Node.Name + "\" becomes unavaliable.")
 					lb.ring.RemoveHash(event.Node.Hash())
 				}
 			}
 			lb.running.Delete(event.Node)
 			count--
 		}
-		if atomic.AddUint32(&lb.runningCount, uint32(-1)) == 0 {
+		if atomic.AddUint32(&lb.runningCount, uint32(0xFFFFFFFF)) == 0 {
 			lb.stop <- struct{}{}
 		}
 	}()
@@ -111,9 +119,9 @@ func (lb *ServiceLB) selectNode(helper func() server.Bucket) (*ServiceNode, erro
 
 func (lb *ServiceLB) HashSelect(h server.Hashable) (*ServiceNode, error) {
 	return lb.selectNode(func() server.Bucket {
-		lb.lock.Rlock()
-		defer lb.lock.Unlock()
-		_, bucket := lb.lock.Hit(h)
+		lb.lock.RLock()
+		defer lb.lock.RUnlock()
+		_, bucket := lb.ring.Hit(h)
 		return bucket
 	})
 }
@@ -121,8 +129,8 @@ func (lb *ServiceLB) HashSelect(h server.Hashable) (*ServiceNode, error) {
 func (lb *ServiceLB) RoundRobinSelect() (*ServiceNode, error) {
 	return lb.selectNode(func() server.Bucket {
 		round := atomic.AddUint32(&lb.round, 1)
-		lb.lock.Rlock()
-		defer lb.lock.Unlock()
+		lb.lock.RLock()
+		defer lb.lock.RUnlock()
 		if r := lb.ring.Len(); r <= 0 {
 			round = 0
 		} else {

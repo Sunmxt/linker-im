@@ -33,6 +33,5 @@ type HTTPResponse struct {
 }
 
 type EntityAlterV1 struct {
-	Version  uint32   `json:"ver"`
 	Entities []string `json:"args"`
 }

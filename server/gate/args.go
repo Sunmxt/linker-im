@@ -42,7 +42,7 @@ type GatewayOptions struct {
 	RouteTimeout *cmdline.UintValue
 
 	// List of service endpoints.
-	ServiceEndpoints *cmdline.NetEndpointSetValue
+	//ServiceEndpoints *cmdline.NetEndpointSetValue
 
 	// Period to check state of service endpoint.
 	// Unhealthy endpoints will be disable automatically.
@@ -76,16 +76,16 @@ func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfig
 			return err
 		}
 	}
-	if options.ServiceEndpoints.IsDefault && cfg.SVCConfig.Endpoints != nil && len(cfg.SVCConfig.Endpoints) > 0 {
-		options.ServiceEndpoints.IsDefault = false
-		for k, v := range cfg.SVCConfig.Endpoints {
-			ep, err := cmdline.NewNetEndpointValueDefault(options.ServiceEndpoints.ValidSchemes, v)
-			if err != nil {
-				return err
-			}
-			options.ServiceEndpoints.Endpoints[k] = ep
-		}
-	}
+	//if options.ServiceEndpoints.IsDefault && cfg.SVCConfig.Endpoints != nil && len(cfg.SVCConfig.Endpoints) > 0 {
+	//	options.ServiceEndpoints.IsDefault = false
+	//	for k, v := range cfg.SVCConfig.Endpoints {
+	//		ep, err := cmdline.NewNetEndpointValueDefault(options.ServiceEndpoints.ValidSchemes, v)
+	//		if err != nil {
+	//			return err
+	//		}
+	//		options.ServiceEndpoints.Endpoints[k] = ep
+	//	}
+	//}
 	if options.KeepalivePeriod.IsDefault {
 		options.KeepalivePeriod.Value = cfg.SVCConfig.KeepalivePeriod
 	}
@@ -102,9 +102,9 @@ func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfig
 }
 
 func (options *GatewayOptions) SetDefault() error {
-	if options.ServiceEndpoints.String() == "" {
-		return errors.New("No service node found. (See \"-service-endpoints\")")
-	}
+	//if options.ServiceEndpoints.String() == "" {
+	//	return errors.New("No service node found. (See \"-service-endpoints\")")
+	//}
 	if options.RedisEndpoint.Host == "" {
 		return errors.New("Redis endpoint hosts should not be empty. (See \"-redis-endpoint\")")
 	}
@@ -138,7 +138,7 @@ func (options *GatewayOptions) SetDefault() error {
 func configureParse() (*GatewayOptions, error) {
 	var err error = nil
 	var api_endpoint, manage_endpoint, redis_endpoint, rpcBind, rpcPub *cmdline.NetEndpointValue
-	var serviceEndpoints *cmdline.NetEndpointSetValue
+	//var serviceEndpoints *cmdline.NetEndpointSetValue
 
 	if manage_endpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp", "http", "https"}, "127.0.0.1:12361"); err != nil {
 		log.Panicf("Flag value creating failure: %v", err.Error())
@@ -152,10 +152,10 @@ func configureParse() (*GatewayOptions, error) {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
 	}
-	if serviceEndpoints, err = cmdline.NewNetEndpointSetValueDefault([]string{"tcp"}, ""); err != nil {
-		log.Panicf("Flag value creating failure: %v", err.Error())
-		return nil, err
-	}
+	//if serviceEndpoints, err = cmdline.NewNetEndpointSetValueDefault([]string{"tcp"}, ""); err != nil {
+	//	log.Panicf("Flag value creating failure: %v", err.Error())
+	//	return nil, err
+	//}
 	if rpcBind, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "0.0.0.0:12362"); err != nil {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
@@ -166,14 +166,14 @@ func configureParse() (*GatewayOptions, error) {
 	}
 
 	options := &GatewayOptions{
-		ExternalConfig:     cmdline.NewStringValue(),
-		LogLevel:           cmdline.NewUintValueDefault(0),
-		KeepalivePeriod:    cmdline.NewUintValueDefault(10),
-		ManageEndpoint:     manage_endpoint,
-		APIEndpoint:        api_endpoint,
-		RedisEndpoint:      redis_endpoint,
-		RedisPrefix:        cmdline.NewStringValueDefault("linker"),
-		ServiceEndpoints:   serviceEndpoints,
+		ExternalConfig:  cmdline.NewStringValue(),
+		LogLevel:        cmdline.NewUintValueDefault(0),
+		KeepalivePeriod: cmdline.NewUintValueDefault(10),
+		ManageEndpoint:  manage_endpoint,
+		APIEndpoint:     api_endpoint,
+		RedisEndpoint:   redis_endpoint,
+		RedisPrefix:     cmdline.NewStringValueDefault("linker"),
+		//ServiceEndpoints:   serviceEndpoints,
 		RouteTimeout:       cmdline.NewUintValueDefault(10),
 		MessageBulkTime:    cmdline.NewUintValueDefault(50),
 		RedisPoolIdleMax:   cmdline.NewUintValueDefault(100),
@@ -190,7 +190,7 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.ManageEndpoint, "manage-endpoint", "Manage API Endpoint.")
 	flag.Var(options.RedisEndpoint, "redis-endpoint", "Redis cache endpoint.")
 	flag.Var(options.RedisPrefix, "redis-prefix", "Redis cache key prefix.")
-	flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
+	//flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")
 	flag.Var(options.KeepalivePeriod, "keepalive-period", "Keepalive period. Can not be 0.")
 	flag.Var(options.ActiveTimeout, "active-timeout", "")
 	flag.Var(options.RedisPoolIdleMax, "redis-max-idle", "Maximum idle redis connections.")

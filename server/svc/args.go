@@ -108,7 +108,7 @@ func configureParse() (*ServiceOptions, error) {
 		CacheTimeout:  cmdline.NewUintValueDefault(0),
 		Endpoint:      RPCEndpoint,
 		RedisEndpoint: redisEndpoint,
-		RedisPrefix:   cmdline.NewStringValueDefault("linker_svc"),
+		RedisPrefix:   cmdline.NewStringValueDefault("linker"),
 		//PersistStorageEndpoint: persistEndpoint,
 		//DisableSessionPersist:  cmdline.NewBoolValueDefault(false),
 		//DisableMessagePersist:  cmdline.NewBoolValueDefault(false),

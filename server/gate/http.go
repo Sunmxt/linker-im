@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
+	"github.com/Sunmxt/linker-im/server"
 	sc "github.com/Sunmxt/linker-im/server/svc/client"
 	gmux "github.com/gorilla/mux"
 	guuid "github.com/satori/go.uuid"
@@ -52,9 +53,11 @@ func NewRequestContext(w http.ResponseWriter, req *http.Request, ireq interface{
 		ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
 		return nil, err
 	}
-	if err = json.Unmarshal(buf, ireq); err != nil {
-		ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
-		return nil, err
+	if ireq != nil {
+		if err = json.Unmarshal(buf, ireq); err != nil {
+			ctx.ResponseError(proto.INVALID_ARGUMENT, err.Error())
+			return nil, err
+		}
 	}
 	if err = ctx.initializeContext(); err != nil {
 		return nil, err
@@ -156,7 +159,6 @@ func (ctx *APIRequestContext) ResponseError(code uint32, msg string) {
 }
 
 func (ctx *APIRequestContext) Finalize() {
-	var raw []byte
 	var err error
 
 	ctx.Writer.WriteHeader(ctx.StatusCode)
@@ -203,93 +205,114 @@ func (ctx *APIRequestContext) Finalize() {
 
 // API
 
-func EntityAlter(w http.ResponseWriter, req *http.Request) {
+func EntityList(w http.ResponseWriter, req *http.Request) {
+	var client *sc.ServiceClient
+	var rpcErr error
+	vars := gmux.Vars(req)
+	ctx, err := NewRequestContext(w, req, nil)
+	if err != nil {
+		return
+	}
+	entity, ok := vars["entity"]
+	if !ok {
+		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "Variable \"entity\" not found.")
+	}
+	switch entity {
+	case "namespace":
+		if client, err = ctx.BeginRPC(); err != nil {
+			break
+		}
+		ctx.Data, rpcErr = client.ListNamespace()
+	case "user":
+		if client, err = ctx.BeginRPC(); err != nil {
+			break
+		}
+		ctx.Data, rpcErr = client.ListUser(ctx.Namespace)
+	case "group":
+		if client, err = ctx.BeginRPC(); err != nil {
+			break
+		}
+		ctx.Data, rpcErr = client.ListGroup(ctx.Namespace)
+	default:
+		ctx.StatusCode = 400
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid entity \""+entity+"\"")
+		return
+	}
+	ctx.EndRPC(rpcErr)
+	if rpcErr != nil {
+		err = rpcErr
+	}
+	if err != nil {
+		if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
+			log.Error("RPC Error: " + err.Error())
+			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
+		} else {
+			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
+		}
+		return
+	}
+	ctx.ResponseError(proto.SUCCEED, "")
 }
 
-func NamespaceOperate(w http.ResponseWriter, req *http.Request) {
-	var rpcClient *sc.ServiceClient
-	var ireq proto.EntityAlterV1
-
+func EntityAlter(w http.ResponseWriter, req *http.Request) {
+	var client *sc.ServiceClient
+	var rpcErr error
+	vars, ireq := gmux.Vars(req), proto.EntityAlterV1{}
 	ctx, err := NewRequestContext(w, req, &ireq)
 	if err != nil {
 		return
 	}
-	defer ctx.Finalize()
-
-	rpcClient, err = ctx.BeginRPC()
-	if err != nil {
-		return
+	entity, ok := vars["entity"]
+	if !ok {
+		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "Variable \"entity\" not found.")
 	}
-
-	switch ctx.Req.Method {
-	case "POST":
-		err = rpcClient.NamespaceAdd(ireq.Entities)
-	case "DELETE":
-		err = rpcClient.NamespaceRemove(ireq.Entities)
+	switch entity {
+	case "namespace":
+		if client, err = ctx.BeginRPC(); err != nil {
+			break
+		}
+		if req.Method == "POST" {
+			rpcErr = client.AddNamespace(ireq.Entities)
+		} else {
+			rpcErr = client.DeleteNamespace(ireq.Entities)
+		}
+	case "user":
+		if client, err = ctx.BeginRPC(); err != nil {
+			break
+		}
+		if req.Method == "POST" {
+			rpcErr = client.AddUser(ctx.Namespace, ireq.Entities)
+		} else {
+			rpcErr = client.DeleteUser(ctx.Namespace, ireq.Entities)
+		}
+	case "group":
+		if client, err = ctx.BeginRPC(); err != nil {
+			break
+		}
+		if req.Method == "POST" {
+			rpcErr = client.AddGroup(ctx.Namespace, ireq.Entities)
+		} else {
+			rpcErr = client.DeleteGroup(ctx.Namespace, ireq.Entities)
+		}
 	default:
 		ctx.StatusCode = 400
-		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid operation")
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid entity \""+entity+"\"")
 		return
 	}
+	ctx.EndRPC(rpcErr)
+	if rpcErr != nil {
+		err = rpcErr
+	}
 	if err != nil {
-		authErr, isAuthErr := err.(server.AuthError)
-		if isAuthErr {
-			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
-		} else {
+		if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
+			log.Error("RPC Error: " + err.Error())
 			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
-		}
-		return
-	}
-
-	ctx.SetResponse(nil)
-}
-
-func ListNamespace(w http.ResponseWriter, req *http.Request) {
-	var rpcClient *sc.ServiceClient
-	var namespaces []string
-
-	ctx, err := NewRequestContext(w, req)
-	if err != nil {
-		return
-	}
-	defer ctx.Finalize()
-
-	rpcClient, err = ctx.BeginRPC()
-	if err != nil {
-		return
-	}
-
-	namespaces, err = rpcClient.NamespaceList()
-	ctx.EndRPC(err)
-	if err != nil {
-		authErr, isAuthErr := err.(server.AuthError)
-		if isAuthErr {
-			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
 		} else {
-			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
+			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
 		}
 		return
-	} else {
-		ctx.ListData = make([]interface{}, 0, len(namespaces))
-		for _, ns := range namespaces {
-			ctx.ListData = append(ctx.ListData, ns)
-		}
 	}
-
 	ctx.ResponseError(proto.SUCCEED, "")
-}
-
-func GroupOperation(w http.ResponseWriter, req *http.Request) {
-
-}
-
-func ListGroup(w http.ResponseWriter, req *http.Request) {
-}
-
-func ListUser(w http.ResponseWriter, req *http.Request) {
-}
-
-func UserOperation(w http.ResponseWriter, req *http.Request) {
 }
 
 func PushMessage(w http.ResponseWriter, req *http.Request) {
@@ -303,7 +326,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		msg      []proto.Message
 	)
 
-	ctx, err := NewRequestContext(w, req)
+	ctx, err := NewRequestContext(w, req, nil)
 	if err != nil {
 		return
 	}
@@ -320,25 +343,28 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		bulk = -1
 	}
 
-	raw, ok := ctx.Data["enc"]
+	raw, ok := ctx.Req.Form["enc"]
 	if !ok {
 		enc = "txt"
-	} else {
-		enc, ok = raw.(string)
-		if !ok || (enc != "txt" && enc != "b64") {
-			ctx.ResponseError(proto.INVALID_ARGUMENT, "")
-			return
-		}
 	}
-
-	raw, ok = ctx.Data["usr"]
-	if !ok {
-		ctx.ResponseError(proto.INVALID_ARGUMENT, "Missing user.")
+	if len(raw) > 0 {
+		enc = raw[0]
+	}
+	if enc != "txt" && enc != "b64" {
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid enc \""+enc+"\"")
 		return
 	}
-	usr, ok = raw.(string)
-	if !ok || usr == "" {
-		ctx.ResponseError(proto.INVALID_ARGUMENT, "")
+
+	raw, ok = ctx.Req.Form["u"]
+	if !ok {
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "Missing u.")
+		return
+	}
+	if len(raw) > 0 {
+		usr = raw[0]
+	}
+	if usr == "" {
+		ctx.ResponseError(proto.INVALID_ARGUMENT, "Empty u.")
 	}
 
 	if ctx.EnableTimeout {
@@ -365,31 +391,22 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 	resp := make([]interface{}, 0, len(msg))
 	if enc == "b64" {
 		for idx := range msg {
-			msg[idx].Raw = base64.StdEncoding.EncodeToString([]byte(msg[idx].Raw))
+			msg[idx].Body.Raw = base64.StdEncoding.EncodeToString([]byte(msg[idx].Body.Raw))
 		}
 	}
 	for idx := range msg {
 		resp = append(resp, msg[idx])
 	}
-	ctx.SetListResponse(resp)
+	ctx.Data = resp
 	ctx.Finalize()
 }
 
 func (g *Gate) InitHTTP() error {
 	g.Router = gmux.NewRouter()
 
-	log.Info0("Register HTTP endpoint \"/namespace\"")
-	g.Router.HandleFunc("/namespace", NamespaceOperate).Methods("POST", "DELETE")
-	g.Router.HandleFunc("/namespace", ListNamespace).Methods("GET")
-	g.Router.HandleFunc("/namespace", EntityAlter).Methods("POST", "DELETE")
-
-	log.Info0("Register HTTP endpoint \"/group\"")
-	g.Router.HandleFunc("/group", ListGroup).Methods("GET")
-	g.Router.HandleFunc("/group", GroupOperation).Methods("POST", "DELETE")
-
-	log.Info0("Register HTTP endpoint \"/user\"")
-	g.Router.HandleFunc("/user", ListUser).Methods("GET")
-	g.Router.HandleFunc("/user", UserOperation).Methods("POST", "DELETE")
+	log.Info0("Register HTTP endpoint for entity modification \"/namespace\"")
+	g.Router.HandleFunc("/v1/{entity}", EntityList).Methods("GET")
+	g.Router.HandleFunc("/v1/{entity}", EntityAlter).Methods("POST", "DELETE")
 
 	log.Info0("Register HTTP endpoint \"msg\"")
 	g.Router.HandleFunc("/msg", PullMessage).Methods("GET")

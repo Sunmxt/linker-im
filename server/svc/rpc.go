@@ -55,7 +55,10 @@ func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.E
 	default:
 		reply.Msg = fmt.Sprintf("Unknown entity: %v", args.Type)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *string) error {
@@ -65,11 +68,11 @@ func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *strin
 		return nil
 	}
 
+	if args.Entities == nil || len(args.Entities) < 1 {
+		return nil
+	}
 	switch args.Type {
 	case proto.ENTITY_NAMESPACE:
-		if len(args.Entities) < 1 {
-			break
-		}
 		if args.Operation == proto.ENTITY_ADD {
 			mapping, empty := make(map[string]*NamespaceMetadata, len(args.Entities)), NewDefaultNamespaceMetadata()
 			for idx := range args.Entities {
@@ -81,8 +84,9 @@ func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *strin
 		}
 
 	case proto.ENTITY_GROUP:
-		if len(args.Entities) < 2 {
-			break
+		if args.Namespace == "" {
+			*reply = "Empty namespace."
+			return nil
 		}
 		if args.Operation == proto.ENTITY_ADD {
 			mapping, empty := make(map[string]*GroupMetadata, len(args.Entities)-1), NewDefaultGroupMetadata()
@@ -95,8 +99,9 @@ func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *strin
 		}
 
 	case proto.ENTITY_USER:
-		if len(args.Entities) < 2 {
-			break
+		if args.Namespace == "" {
+			*reply = "Empty namespace."
+			return nil
 		}
 		if args.Operation == proto.ENTITY_ADD {
 			mapping, empty := make(map[string]*UserMetadata, len(args.Entities)-1), NewDefaultUserMetadata()
