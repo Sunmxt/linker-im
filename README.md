@@ -1,6 +1,8 @@
 # Linker-IM
 
-Instant message pushing platform.
+***(In development.)***
+
+Instant message pushing platform. 
 
 
 
