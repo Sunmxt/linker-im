@@ -6,8 +6,8 @@ import (
 	ilog "github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
 	"github.com/Sunmxt/linker-im/server"
-	"github.com/Sunmxt/linker-im/server/resource"
 	"net/http"
+	"net/rpc"
 )
 
 // Errors
@@ -17,17 +17,18 @@ type ServiceRPC struct {
 	log *ilog.Logger
 }
 
-func (svc ServiceRPC) Keepalive(gateInfo *proto.KeepaliveGatewayInformation, serviceInfo *proto.KeepaliveServiceInformation) error {
-	ilog.Infof2("Keepalive from gateway %v.", gateInfo.NodeID.String())
-	*serviceInfo = proto.KeepaliveServiceInformation{
-		NodeID: svc.NodeID,
-	}
+func (svc ServiceRPC) Echo(args *string, reply *string) error {
+	*reply = *args
 	return nil
 }
 
 // Push message sequences.
-func (svc ServiceRPC) Push(msg *proto.MessagePushArguments, reply *proto.MessagePushResult) error {
+func (svc ServiceRPC) Push(msg *proto.RawMessagePushArguments, reply *proto.MessagePushResult) error {
 	return fmt.Errorf("Message pushing not avaliable.")
+}
+
+func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
+	return nil
 }
 
 func (svc ServiceRPC) logError(err error) {
@@ -35,122 +36,132 @@ func (svc ServiceRPC) logError(err error) {
 		return
 	}
 	switch err.(type) {
-	case resource.ResourceAuthError:
+	case server.AuthError:
 		svc.log.Info1("Resource authorization error: " + err.Error())
 	default:
 		svc.log.Info0("RPC Error: " + err.Error())
 	}
 }
 
-// Append session namespace.
-func (svc ServiceRPC) NamespaceAdd(args *proto.NamespaceArguments, reply *proto.Dummy) error {
-	var res interface{}
+func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.EntityListReply) error {
 	var err error
-
-	defer func() {
-		svc.logError(err)
-	}()
-
-	res, err = svc.getResource("namespace", nil)
-	if err != nil {
-		return err
-	}
-
-	sessionNamespace, ok := res.(*SessionNamespace)
-	if !ok {
-		return errors.New("Resource \"namespace\" has invalid type.")
-	}
-
-	if err = sessionNamespace.Append(args.Names); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (svc ServiceRPC) getResource(name string, credentials map[string]string) (interface{}, error) {
-	res, err := resource.Registry.AuthAccess(name, credentials)
-	if err != nil {
-		if _, ok := err.(resource.ResourceAuthError); ok {
-			svc.log.Infof0("Deny access to resource \"%v\" (%v).", name, err.Error())
-			return nil, err
-		} else {
-			return nil, err
-		}
-	}
-	return res, err
-}
-
-func (svc ServiceRPC) NamespaceList(args *proto.Dummy, reply *proto.NamespaceListReply) error {
-	var res interface{}
-	var err error
-
-	defer func() {
-		svc.logError(err)
-	}()
-
-	res, err = svc.getResource("namespace", nil)
-	if err != nil {
-		return err
-	}
-
-	sessionNamespace, ok := res.(*SessionNamespace)
-	if !ok {
-		return errors.New("Resource \"namespace\" has invalid type.")
-	}
-
-	reply.Names, err = sessionNamespace.List()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (svc ServiceRPC) NamespaceRemove(args *proto.NamespaceArguments, reply *proto.Dummy) error {
-	var res interface{}
-	var err error
-
-	defer func() {
-		svc.logError(err)
-	}()
-
-	res, err = svc.getResource("namespace", nil)
-	if err != nil {
-		return err
-	}
-
-	sessionNamespace, ok := res.(*SessionNamespace)
-	if !ok {
-		return errors.New("Resource \"namespace\" has invalid type.")
-	}
-
-	if err = sessionNamespace.Remove(args.Names); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func ServeRPC() error {
-	mux, err := NewServiceServeMux()
-
-	if err != nil {
-		err = fmt.Errorf("Error occurs when create mux (%v)", err.Error())
-	}
-
-	// Serve RPC
-	switch Config.Endpoint.Scheme {
-	case "tcp":
-		httpServer := &http.Server{
-			Addr:    Config.Endpoint.AuthorityString(),
-			Handler: mux,
-		}
-		ilog.Infof0("RPC Serve at %v", Config.Endpoint.String())
-		err = httpServer.ListenAndServe()
+	switch args.Type {
+	case proto.ENTITY_NAMESPACE:
+		reply.Entities, err = service.Model.ListNamespace()
+	case proto.ENTITY_GROUP:
+		reply.Entities, err = service.Model.ListGroup(args.Namespace)
+	case proto.ENTITY_USER:
+		reply.Entities, err = service.Model.ListUser(args.Namespace)
 	default:
-		err = fmt.Errorf("Not supported rpc scheme: %v", Config.Endpoint.Scheme)
+		reply.Msg = fmt.Sprintf("Unknown entity: %v", args.Type)
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *string) error {
+	var err error
+	if args.Operation != proto.ENTITY_ADD && args.Operation != proto.ENTITY_DEL {
+		*reply = fmt.Sprintf("Unknown operation: %v", args.Operation)
+		return nil
 	}
 
+	if args.Entities == nil || len(args.Entities) < 1 {
+		return nil
+	}
+	switch args.Type {
+	case proto.ENTITY_NAMESPACE:
+		if args.Operation == proto.ENTITY_ADD {
+			mapping, empty := make(map[string]*NamespaceMetadata, len(args.Entities)), NewDefaultNamespaceMetadata()
+			for idx := range args.Entities {
+				mapping[args.Entities[idx]] = empty
+			}
+			err = service.Model.SetNamespaceMetadata(mapping, true)
+		} else {
+			err = service.Model.DeleteNamespaceMetadata(args.Entities)
+		}
+
+	case proto.ENTITY_GROUP:
+		if args.Namespace == "" {
+			*reply = "Empty namespace."
+			return nil
+		}
+		if args.Operation == proto.ENTITY_ADD {
+			mapping, empty := make(map[string]*GroupMetadata, len(args.Entities)-1), NewDefaultGroupMetadata()
+			for idx := range args.Entities {
+				mapping[args.Entities[idx]] = empty
+			}
+			err = service.Model.SetGroupMetadata(args.Namespace, mapping, true)
+		} else {
+			err = service.Model.DeleteGroupMetadata(args.Namespace, args.Entities)
+		}
+
+	case proto.ENTITY_USER:
+		if args.Namespace == "" {
+			*reply = "Empty namespace."
+			return nil
+		}
+		if args.Operation == proto.ENTITY_ADD {
+			mapping, empty := make(map[string]*UserMetadata, len(args.Entities)-1), NewDefaultUserMetadata()
+			for idx := range args.Entities {
+				mapping[args.Entities[idx]] = empty
+			}
+			err = service.Model.SetUserMetadata(args.Namespace, mapping, true)
+		} else {
+			err = service.Model.DeleteUserMetadata(args.Namespace, args.Entities)
+		}
+
+	default:
+		*reply = fmt.Sprintf("Unknown entity: %v", args.Type)
+	}
 	return err
+}
+
+func (svc *Service) InitRPC() error {
+	rpcServer := rpc.NewServer()
+	rpcRuntime := ServiceRPC{
+		NodeID: svc.ID,
+		log:    ilog.NewLogger(),
+	}
+	rpcRuntime.log.Fields["entity"] = "rpc"
+
+	rpcServer.Register(rpcRuntime)
+
+	// Mux
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/", Healthz)
+
+	svc.RPCRouter = http.NewServeMux()
+	// Health check
+	ilog.Info0("Register RPC health-check endpoint \"/healthz\"")
+	svc.RPCRouter.Handle("/healthz", ilog.TagLogHandler(healthMux, map[string]interface{}{
+		"entity": "health-check",
+	}))
+
+	// RPC
+	ilog.Info0("Register RPC endpoint \"" + proto.RPC_PATH + "\"")
+	svc.RPCRouter.Handle(proto.RPC_PATH, rpcServer)
+
+	if svc.Config.Endpoint.Scheme != "tcp" {
+		return errors.New("Not supported rpc scheme: " + svc.Config.Endpoint.Scheme)
+	}
+
+	ilog.Info0("Initialize RPC Server at \"" + svc.Config.Endpoint.String() + "\".")
+	svc.RPC = &http.Server{
+		Addr:    svc.Config.Endpoint.AuthorityString(),
+		Handler: svc.RPCRouter,
+	}
+
+	return nil
+}
+
+func (svc *Service) ServeRPC() {
+	ilog.Info0("RPC Serving...")
+	if err := svc.RPC.ListenAndServe(); err != nil {
+		ilog.Error("RPC Server failure: " + err.Error())
+		svc.fatal <- err
+	}
+	ilog.Info0("RPC Stopping...")
 }

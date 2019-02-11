@@ -1,21 +1,23 @@
 package proto
 
-type GroupID [16]byte
-type UserID [16]byte
-
-type RawMessage struct {
-	Namespace string
-	GroupID
-	UserID
-	Raw []byte
+type MessageIdentifier struct {
+	Timestamp uint64 `json:"t,omitempty"`
+	Sequence  uint32 `json:"s,omitempty"`
 }
 
-type MessageIdentifier struct {
-	Timestamp  uint64
-	SequenceID uint32
+type MessageBody struct {
+	User  string `json:"u"`
+	Group string `json:"g"`
+	Raw   string `json:"d"`
 }
 
 type Message struct {
-	Identifier MessageIdentifier
-	RawMessage
+	ID   *MessageIdentifier
+	Body MessageBody
+}
+
+type MessageCheck struct {
+	StampBegin uint64 `json:"b"`
+	StampEnd   uint64 `json:"e"`
+	Count      uint64 `json:"c"`
 }

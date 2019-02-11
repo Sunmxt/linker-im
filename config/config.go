@@ -5,7 +5,8 @@ import (
 )
 
 type HTTPAPIConfigure struct {
-	Endpoint string `endpoint,omitempty`
+	Endpoint   string `endpoint,omitempty`
+	ActiveTime uint   `active-time,omitempty`
 }
 
 type HTTPManagementAPIConfigure struct {
@@ -20,7 +21,7 @@ type ServiceConnectionConfigure struct {
 type GatewayConfigure struct {
 	LogLevel uint `log-level,omitempty,flow`
 
-	MessageAggregateTimeslice uint `aggregate-timeslice,omitempty`
+	MessageBulkTime uint `message-bulk,omitempty`
 
 	RedisEndpoint string `redis-endpoint,omitempty`
 	RedisPrefix   string `redis-prefix,omitempty`

@@ -2,15 +2,14 @@ package proto
 
 import (
 	"fmt"
-	guuid "github.com/satori/go.uuid"
 )
 
 const (
-	SUCCEED               = 0
-	INVALID_ARGUMENT      = 1
-	TIMEOUT               = 2
-	ACCESS_DEINED         = 3
-	SERVER_INTERNAL_ERROR = 4
+	SUCCEED               = uint32(0)
+	INVALID_ARGUMENT      = uint32(1)
+	TIMEOUT               = uint32(2)
+	ACCESS_DEINED         = uint32(3)
+	SERVER_INTERNAL_ERROR = uint32(4)
 )
 
 var ErrorMessageFromCode map[uint32]string = map[uint32]string{
@@ -26,36 +25,13 @@ func ErrorCodeText(code uint32) string {
 	return err
 }
 
-type HTTPMapResponse struct {
-	APIVersion   uint32                 `json:"ver"`
-	Data         map[string]interface{} `json:"data"`
-	Code         uint32                 `json:"code"`
-	ErrorMessage string                 `json:"msg"`
+type HTTPResponse struct {
+	Version uint32      `json:"ver"`
+	Data    interface{} `json:"data"`
+	Code    uint32      `json:"code"`
+	Msg     string      `json:"msg"`
 }
 
-type HTTPListResponse struct {
-	APIVersion   uint32        `json:"ver"`
-	Data         []interface{} `json:"data"`
-	Code         uint32        `json:"code"`
-	ErrorMessage string        `json:"msg"`
-}
-
-type HTTPListRequest struct {
-	APIVersion uint32        `json:"ver"`
-	Arguments  []interface{} `json:"args"`
-	RequestID  guuid.UUID    `json:"-"`
-}
-
-type HTTPMapRequest struct {
-	APIVersion uint32                 `json:"ver"`
-	Arguments  map[string]interface{} `json:"args"`
-	RequestID  guuid.UUID             `json:"-"`
-}
-
-func (req *HTTPListRequest) Identifier() string {
-	return req.RequestID.String()
-}
-
-func (req *HTTPMapRequest) Identifier() string {
-	return req.RequestID.String()
+type EntityAlterV1 struct {
+	Entities []string `json:"args"`
 }

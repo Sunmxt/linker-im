@@ -1,9 +1,13 @@
 package server
 
 import (
+	"errors"
 	guuid "github.com/satori/go.uuid"
 	"strings"
 )
+
+// Errors
+var ErrInvalidNodeIDString = errors.New("Invalid ID string.")
 
 // Node ID
 type NodeID guuid.UUID
@@ -24,4 +28,8 @@ func (n *NodeID) AsKey() string {
 
 func (n *NodeID) Assign(id *NodeID) {
 	copy(n[:], id[:])
+}
+
+func (n *NodeID) FromString(raw string) error {
+	return (*guuid.UUID)(n).UnmarshalText([]byte(raw))
 }

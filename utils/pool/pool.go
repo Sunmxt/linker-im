@@ -204,7 +204,7 @@ func (p *Pool) Push(x interface{}) {
 func (p *Pool) Pop() interface{} {
 	idx := len(p.drip) - 1
 	p.drip[idx].index = -1
-	removed := p.drip[idx].X
+	removed := p.drip[idx]
 	p.drip = p.drip[:idx]
 	return removed
 }

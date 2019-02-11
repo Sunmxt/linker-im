@@ -4,72 +4,86 @@ import (
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/server"
-	"github.com/Sunmxt/linker-im/server/resource"
+	"github.com/Sunmxt/linker-im/server/dig"
+	"github.com/gomodule/redigo/redis"
+	gmux "github.com/gorilla/mux"
 	"net/http"
 )
 
 var Config *GatewayOptions
 var NodeID server.NodeID
 
-func LogConfigure() {
-	log.Infof0("-config=%v", Config.ExternalConfig.String())
-	log.Infof0("-log-level=%v", Config.LogLevel.String())
-	log.Infof0("-endpoint=%v", Config.APIEndpoint.String())
-	log.Infof0("-manage-endpoint=%v", Config.ManageEndpoint.String())
-	log.Infof0("-redis-endpoint=%v", Config.RedisEndpoint.String())
-	log.Infof0("-redis-prefix=%v", Config.RedisPrefix.String())
-	log.Infof0("-services-endpoint=\"%v\"", Config.ServiceEndpoints.String())
-	log.Infof0("-keepalive-period=%v", Config.KeepalivePeriod.String())
-	log.Infof0("-debug=%v", Config.DebugMode.String())
+type Gate struct {
+	config    *GatewayOptions
+	ID        server.NodeID
+	HTTP      *http.Server
+	Router    *gmux.Router
+	RPCRouter *gmux.Router
+	RPC       *http.Server
+	LB        *ServiceLB
+	Dig       dig.Registry
+	Node      *dig.Node
+	Redis     *redis.Pool
+	Hub       *Hub
+	fatal     chan error
 }
 
-func RegisterResources() error {
-	svcEndpointSet := NewServiceEndpointSetFromFlag(Config.ServiceEndpoints, 10, 50)
-	log.Infof0("Register resource \"svc-endpoint\".")
-	if err := resource.Registry.Register("svc-endpoint", svcEndpointSet); err != nil {
-		return err
-	}
-	svcEndpointSet.GoKeepalive(NodeID, Config.KeepalivePeriod.Value)
-	return nil
-}
+var gate *Gate
 
-func Main() {
+func (g *Gate) Run() {
+	var err error
+
 	fmt.Println("Protocol exporter of Linker IM.")
-	config, err := configureParse()
-	if config == nil {
+	g.config, err = configureParse()
+	if g.config == nil {
 		log.Fatalf("%v", err.Error())
 		return
 	}
 
 	log.Infof0("Linker IM Server Gateway Start.")
 
-	Config = config
-	LogConfigure()
-
 	// Log level
-	log.Infof0("Log Level set to %v.", Config.LogLevel.Value)
-	log.SetGlobalLogLevel(Config.LogLevel.Value)
+	log.Infof0("Log Level set to %v.", g.config.LogLevel.Value)
+	log.SetGlobalLogLevel(g.config.LogLevel.Value)
 
-	NodeID = server.NewNodeID()
-	log.Infof0("Gateway Node ID is %v.", NodeID.String())
+	// Node ID
+	g.ID = server.NewNodeID()
+	log.Infof0("Gateway Node ID is " + g.ID.String() + ".")
 
-	// Serve IM API
-	httpMux, err := NewHTTPAPIMux()
-	log.Infof0("HTTP API Serve at %v.", config.APIEndpoint.String())
-	api_server := http.Server{
-		Addr: config.APIEndpoint.String(),
-		Handler: log.TagLogHandler(httpMux, map[string]interface{}{
-			"entity": "http-api",
-		}),
-	}
+	g.fatal = make(chan error)
 
-	if err = RegisterResources(); err != nil {
-		log.Fatalf("Failed to register resource \"%v\".", err.Error())
+	// HTTP
+	if err = g.InitHTTP(); err != nil {
+		log.Fatal("Cannot initialize HTTP: " + err.Error())
 		return
 	}
 
-	log.Trace("APIServer Object:", api_server)
-	if err = api_server.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to serve API: %s", err.Error())
+	// Core objects.
+	if err = g.InitService(); err != nil {
+		log.Fatal("Cannot initialize Services: " + err.Error())
+		return
 	}
+
+	// RPC
+	if err = g.InitRPC(); err != nil {
+		log.Fatal("Cannot initialize RPC: " + err.Error())
+		return
+	}
+
+	go g.ServeHTTP()
+	go g.ServeRPC()
+	go g.Discover()
+	go g.Routing()
+	go g.Keepalive()
+
+	if err = <-g.fatal; err != nil {
+		log.Fatal(err.Error())
+	}
+
+	log.Info0("Exiting...")
+}
+
+func Main() {
+	gate = &Gate{}
+	gate.Run()
 }

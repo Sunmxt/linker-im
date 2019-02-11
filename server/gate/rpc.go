@@ -2,161 +2,53 @@ package gate
 
 import (
 	"errors"
+	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
-	"github.com/Sunmxt/linker-im/server/resource"
-	"github.com/Sunmxt/linker-im/utils/pool"
+	"io"
+	"net/http"
 	"net/rpc"
-	"sync/atomic"
 )
 
-// Errors
-var ErrInvalidResourceType = errors.New("Invalid resource type given.")
-var ErrTimeout = pool.ErrWaitTimeout
+type GateRPC struct{}
 
-type RPCConnection interface {
-	Get() *rpc.Client
-	Close(error)
+func (r GateRPC) Push(msgs *proto.MessagePushArguments, reply *struct{}) error {
+	return gate.Hub.Push(msgs.Gups)
 }
 
-type PooledRPCConnection struct {
-	closed uint32
-	drip   *pool.Drip
-	Client *rpc.Client
+func Health(writer http.ResponseWriter, req *http.Request) {
+	io.WriteString(writer, "ok")
 }
 
-func (conn *PooledRPCConnection) Get() *rpc.Client {
-	return conn.Client
+func (g *Gate) ServeRPC() {
+	if g.config.RPCEndpoint.Scheme != "tcp" {
+		g.fatal <- errors.New("Not supported network type: " + g.config.RPCEndpoint.Scheme)
+	}
+
+	log.Info0("RPC Serving...")
+	if err := g.RPC.ListenAndServe(); err != nil {
+		log.Error("RPC Server failure: " + err.Error())
+		g.fatal <- err
+	}
 }
 
-func (conn *PooledRPCConnection) Close(err error) {
-	if !atomic.CompareAndSwapUint32(&conn.closed, 1, 0) {
-		return
+func (g *Gate) InitRPC() error {
+	rpc := rpc.NewServer()
+	rpc.Register(GateRPC{})
+
+	// Mux
+	mux := http.NewServeMux()
+
+	log.Info0("Register RPC health-check endpoint at \"/healthz\"")
+	mux.HandleFunc("/healthz", Health)
+
+	log.Info0("Register RPC endpoint at \"" + proto.RPC_PATH + "\"")
+	mux.Handle(proto.RPC_PATH, rpc)
+
+	g.RPC = &http.Server{
+		Addr:    g.config.RPCEndpoint.AuthorityString(),
+		Handler: mux,
 	}
+	log.Info0("RPC Serve at \"" + g.config.RPCEndpoint.String() + "\".")
 
-	conn.Client = nil
-	conn.drip.Release(err)
-}
-
-func NewServiceRPCClient(timeout uint32) (*ServiceRPCClient, error) {
-	rawRes, err := resource.Registry.AuthAccess("svc-endpoint", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	eps, ok := rawRes.(*ServiceEndpointSet)
-	if !ok {
-		return nil, ErrInvalidResourceType
-	}
-
-	drip, err := eps.Get(timeout)
-	if err != nil {
-		return nil, err
-	}
-
-	client, ok := drip.X.(*rpc.Client)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ServiceRPCClient{
-		conn: &PooledRPCConnection{
-			drip:   drip,
-			Client: client,
-		},
-	}, nil
-}
-
-func TryNewServiceRPCClient() (*ServiceRPCClient, error) {
-	rawRes, err := resource.Registry.AuthAccess("svc-endpoint", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	eps, ok := rawRes.(*ServiceEndpointSet)
-	if !ok {
-		return nil, ErrInvalidResourceType
-	}
-	drip, err := eps.TryGet()
-	if err != nil {
-		return nil, err
-	}
-
-	client, ok := drip.X.(*rpc.Client)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ServiceRPCClient{
-		conn: &PooledRPCConnection{
-			drip:   drip,
-			Client: client,
-		},
-	}, nil
-}
-
-type ServiceRPCClient struct {
-	conn    RPCConnection
-	lastErr error
-}
-
-func (c *ServiceRPCClient) Close(err error) {
-	if err == nil {
-		err = c.lastErr
-	}
-
-	c.conn.Close(err)
-}
-
-func (c *ServiceRPCClient) NamespaceAdd(ns []string) error {
-	var reply proto.Dummy
-
-	client := c.conn.Get()
-	if client == nil {
-		return rpc.ErrShutdown
-	}
-
-	err := client.Call("ServiceRPC.NamespaceAdd", &proto.NamespaceArguments{
-		Names: ns,
-	}, &reply)
-
-	if err != nil {
-		c.lastErr = err
-	}
-
-	return err
-}
-
-func (c *ServiceRPCClient) NamespaceList() ([]string, error) {
-	var reply proto.NamespaceListReply
-
-	client := c.conn.Get()
-	if client == nil {
-		return nil, rpc.ErrShutdown
-	}
-
-	err := client.Call("ServiceRPC.NamespaceList", &proto.Dummy{}, &reply)
-	if err != nil {
-		c.lastErr = err
-	}
-
-	return reply.Names, err
-}
-
-func (c *ServiceRPCClient) NamespaceRemove(ns []string) error {
-	var reply proto.Dummy
-
-	client := c.conn.Get()
-	if client == nil {
-		return rpc.ErrShutdown
-	}
-
-	err := client.Call("ServiceRPC.NamespaceRemove", &proto.NamespaceArguments{
-		Names: ns,
-	}, &reply)
-
-	if err != nil {
-		c.lastErr = err
-	}
-
-	return err
+	return nil
 }

@@ -1,42 +1,59 @@
 package proto
 
-import (
-	"github.com/Sunmxt/linker-im/server"
-)
-
 const RPC_PATH = "/__rpc_linker_svc"
 const RPC_DEBUG_PATH = "/__rpc_linker_svc_debug"
 
-// Dummy
-type Dummy struct{}
-
-// Keepalive
-type KeepaliveGatewayInformation struct {
-	server.NodeID
+// push message group.
+type MessageGroup struct {
+	Msgs  []Message
+	Users []string
 }
-
-type KeepaliveServiceInformation struct {
-	server.NodeID
-}
-
-// Push message.
 
 type MessagePushArguments struct {
-	Messages []RawMessage
+	Gups []MessageGroup
 }
 
+// push raw message.
+type RawMessagePushArguments struct {
+	Msgs []MessageBody
+}
+
+type PushResult struct {
+	ID   MessageIdentifier
+	Code uint8
+}
 type MessagePushResult struct {
-	Replies []struct {
-		Identifiers MessageIdentifier
-		Code        uint8
-	}
+	Replies []PushResult
 }
 
-// Namespace
-type NamespaceArguments struct {
-	Names []string
+type Subscription struct {
+	Namespace string
+	User      string
+	Group     string
 }
 
-type NamespaceListReply struct {
-	Names []string
+const (
+	ENTITY_NAMESPACE = uint8(1)
+	ENTITY_USER      = uint8(2)
+	ENTITY_GROUP     = uint8(3)
+
+	ENTITY_ADD = uint8(1)
+	ENTITY_DEL = uint8(2)
+)
+
+type EntityAlterArguments struct {
+	Namespace string
+	Entities  []string
+	Operation uint8
+	Type      uint8
+}
+
+type EntityListArguments struct {
+	Namespace string
+	Type      uint8
+}
+
+type EntityListReply struct {
+	Entities []string
+	Msg      string
 }
