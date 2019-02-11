@@ -1,8 +1,8 @@
 package dig
 
 const (
-	EVENT_SERVICE_FOUND = uint(1)
-	//EVENT_SERVICE_LOST          =       uint(2)
+	EVENT_SERVICE_FOUND             = uint(1)
+	EVENT_SERVICE_LOST              = uint(2)
 	EVENT_NODE_LOST                 = uint(3)
 	EVENT_NODE_FOCUS                = uint(4)
 	EVENT_SVC_NODE_FOUND            = uint(5)
@@ -16,4 +16,5 @@ type Notification struct {
 	Event uint
 	Name  string
 	*Node
+	Service
 }
