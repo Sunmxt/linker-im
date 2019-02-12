@@ -35,3 +35,7 @@ type HTTPResponse struct {
 type EntityAlterV1 struct {
 	Entities []string `json:"args"`
 }
+
+type MessagePushV1 struct {
+	Msgs []MessageBody `json:"msg"`
+}

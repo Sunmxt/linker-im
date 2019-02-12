@@ -15,12 +15,13 @@ type MessagePushArguments struct {
 
 // push raw message.
 type RawMessagePushArguments struct {
-	Msgs []MessageBody
+	Msgs    []*MessageBody
+	Session string
 }
 
 type PushResult struct {
-	ID   MessageIdentifier
-	Code uint8
+	ID  MessageIdentifier
+	Msg string `json:"msg"`
 }
 type MessagePushResult struct {
 	Replies []PushResult

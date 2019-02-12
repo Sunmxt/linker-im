@@ -126,6 +126,15 @@ func (lb *ServiceLB) HashSelect(h server.Hashable) (*ServiceNode, error) {
 	})
 }
 
+func (lb *ServiceLB) HashValueSelect(hash uint32) (*ServiceNode, error) {
+	return lb.selectNode(func() server.Bucket {
+		lb.lock.RLock()
+		defer lb.lock.RUnlock()
+		_, bucket := lb.ring.HashHit(hash)
+		return bucket
+	})
+}
+
 func (lb *ServiceLB) RoundRobinSelect() (*ServiceNode, error) {
 	return lb.selectNode(func() server.Bucket {
 		round := atomic.AddUint32(&lb.round, 1)
