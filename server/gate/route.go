@@ -30,7 +30,7 @@ func (g *Gate) sendRoute(rconn redis.Conn, conn *Connection) (int, error) {
 		timeout = conn.Meta.Timeout
 	}
 	if timeout > 0 {
-		if err = rconn.Send("SETEX", infoKey, timeout); err != nil {
+		if err = rconn.Send("EXPIRE", infoKey, timeout); err != nil {
 			return 3, err
 		}
 		return 4, nil
@@ -45,7 +45,7 @@ func (g *Gate) Routing() {
 	)
 	log.Info0("Start client publishing.")
 
-	count, flushTick := 0, time.Tick(time.Millisecond*100)
+	count, flushTick := 0, time.Tick(time.Millisecond*1000)
 	for {
 		rconn = g.Redis.Get()
 		count = 0

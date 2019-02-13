@@ -15,7 +15,6 @@ import (
 // API
 func EntityList(w http.ResponseWriter, req *http.Request) {
 	var client *sc.ServiceClient
-	var rpcErr error
 	vars := gmux.Vars(req)
 	ctx, err := NewRequestContext(w, req, nil)
 	if err != nil {
@@ -26,38 +25,29 @@ func EntityList(w http.ResponseWriter, req *http.Request) {
 	if !ok {
 		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "Variable \"entity\" not found.")
 	}
-	switch entity {
-	case "namespace":
-		if client, err = ctx.BeginRPC(); err != nil {
-			break
+	defer func() {
+		if err != nil {
+			if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
+				log.Error("RPC Error: " + err.Error())
+				ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
+			} else {
+				ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
+			}
 		}
-		ctx.Data, rpcErr = client.ListNamespace()
-	case "user":
-		if client, err = ctx.BeginRPC(); err != nil {
-			break
-		}
-		ctx.Data, rpcErr = client.ListUser(ctx.Namespace)
-	case "group":
-		if client, err = ctx.BeginRPC(); err != nil {
-			break
-		}
-		ctx.Data, rpcErr = client.ListGroup(ctx.Namespace)
-	default:
-		ctx.StatusCode = 400
-		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid entity \""+entity+"\"")
+	}()
+	if client, err = ctx.BeginRPC(); err != nil {
 		return
 	}
-	ctx.EndRPC(rpcErr)
-	if rpcErr != nil {
-		err = rpcErr
+	switch entity {
+	case "namespace":
+		ctx.Data, err = client.ListNamespace()
+	case "user":
+		ctx.Data, err = client.ListUser(ctx.Namespace)
+	case "group":
+		ctx.Data, err = client.ListGroup(ctx.Namespace)
 	}
+	ctx.EndRPC(err)
 	if err != nil {
-		if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
-			log.Error("RPC Error: " + err.Error())
-			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
-		} else {
-			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
-		}
 		return
 	}
 	ctx.ResponseError(proto.SUCCEED, "")
@@ -65,7 +55,6 @@ func EntityList(w http.ResponseWriter, req *http.Request) {
 
 func EntityAlter(w http.ResponseWriter, req *http.Request) {
 	var client *sc.ServiceClient
-	var rpcErr error
 	vars, ireq := gmux.Vars(req), proto.EntityAlterV1{}
 	ctx, err := NewRequestContext(w, req, &ireq)
 	if err != nil {
@@ -75,51 +64,43 @@ func EntityAlter(w http.ResponseWriter, req *http.Request) {
 	entity, ok := vars["entity"]
 	if !ok {
 		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "Variable \"entity\" not found.")
+		return
+	}
+	defer func() {
+		if err != nil {
+			if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
+				log.Error("RPC Error: " + err.Error())
+				ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
+			} else {
+				ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
+			}
+		}
+	}()
+	if client, err = ctx.BeginRPC(); err != nil {
+		return
 	}
 	switch entity {
 	case "namespace":
-		if client, err = ctx.BeginRPC(); err != nil {
-			break
-		}
 		if req.Method == "POST" {
-			rpcErr = client.AddNamespace(ireq.Entities)
+			err = client.AddNamespace(ireq.Entities)
 		} else {
-			rpcErr = client.DeleteNamespace(ireq.Entities)
+			err = client.DeleteNamespace(ireq.Entities)
 		}
 	case "user":
-		if client, err = ctx.BeginRPC(); err != nil {
-			break
-		}
 		if req.Method == "POST" {
-			rpcErr = client.AddUser(ctx.Namespace, ireq.Entities)
+			err = client.AddUser(ctx.Namespace, ireq.Entities)
 		} else {
-			rpcErr = client.DeleteUser(ctx.Namespace, ireq.Entities)
+			err = client.DeleteUser(ctx.Namespace, ireq.Entities)
 		}
 	case "group":
-		if client, err = ctx.BeginRPC(); err != nil {
-			break
-		}
 		if req.Method == "POST" {
-			rpcErr = client.AddGroup(ctx.Namespace, ireq.Entities)
+			err = client.AddGroup(ctx.Namespace, ireq.Entities)
 		} else {
-			rpcErr = client.DeleteGroup(ctx.Namespace, ireq.Entities)
+			err = client.DeleteGroup(ctx.Namespace, ireq.Entities)
 		}
-	default:
-		ctx.StatusCode = 400
-		ctx.ResponseError(proto.INVALID_ARGUMENT, "Invalid entity \""+entity+"\"")
-		return
 	}
-	ctx.EndRPC(rpcErr)
-	if rpcErr != nil {
-		err = rpcErr
-	}
+	ctx.EndRPC(err)
 	if err != nil {
-		if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
-			log.Error("RPC Error: " + err.Error())
-			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
-		} else {
-			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
-		}
 		return
 	}
 	ctx.ResponseError(proto.SUCCEED, "")
@@ -206,10 +187,10 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, err.Error())
 		return
 	}
-	if bulk < -1 {
-		msg = make([]proto.Message, 0, 1)
-	} else {
+	if bulk > 0 {
 		msg = make([]proto.Message, 0, bulk)
+	} else {
+		msg = make([]proto.Message, 0, 1)
 	}
 
 	msg = conn.Receive(msg, bulk, bulk, timeout)
@@ -223,7 +204,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		resp = append(resp, msg[idx])
 	}
 	ctx.Data = resp
-	ctx.Finalize()
+	ctx.ResponseError(proto.SUCCEED, "")
 }
 
 func (g *Gate) InitHTTP() error {

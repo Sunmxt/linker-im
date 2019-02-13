@@ -20,8 +20,8 @@ type RawMessagePushArguments struct {
 }
 
 type PushResult struct {
-	ID  MessageIdentifier
-	Msg string `json:"msg"`
+	MessageIdentifier
+	Msg string `json:"m"`
 }
 type MessagePushResult struct {
 	Replies []PushResult
