@@ -15,10 +15,10 @@ type ServiceLB struct {
 	lock sync.RWMutex
 	ring *server.HashRing
 
-	FromName map[string]*ServiceNode
+	FromName map[string]*server.RPCNode
 	round    uint32
 
-	event        chan *ServiceNodeEvent
+	event        chan *server.RPCNodeEvent
 	running      sync.Map
 	runningCount uint32
 	stop         chan struct{}
@@ -27,19 +27,19 @@ type ServiceLB struct {
 func NewLB() *ServiceLB {
 	return &ServiceLB{
 		ring:     server.NewEmptyHashRing(),
-		event:    make(chan *ServiceNodeEvent),
+		event:    make(chan *server.RPCNodeEvent),
 		stop:     make(chan struct{}, 1),
-		FromName: make(map[string]*ServiceNode),
+		FromName: make(map[string]*server.RPCNode),
 	}
 }
 
-func (lb *ServiceLB) Node(name string) *ServiceNode {
+func (lb *ServiceLB) Node(name string) *server.RPCNode {
 	lb.lock.RLock()
 	defer lb.lock.RUnlock()
 	return lb.FromName[name]
 }
 
-func (lb *ServiceLB) AddNode(name string, node *ServiceNode) error {
+func (lb *ServiceLB) AddNode(name string, node *server.RPCNode) error {
 	lb.lock.Lock()
 	defer lb.lock.Unlock()
 	if n, exists := lb.FromName[name]; exists && n != node {
@@ -82,11 +82,11 @@ func (lb *ServiceLB) Keepalive() {
 			event := <-lb.event
 			if event.OldState != event.NewState {
 				switch event.OldState {
-				case NODE_UNAVALIABLE:
+				case server.NODE_UNAVALIABLE:
 					log.Info0("Node \"" + event.Node.Name + "\" becomes avaliable.")
 					lb.ring.Append(event.Node)
 
-				case NODE_AVALIABLE:
+				case server.NODE_AVALIABLE:
 					log.Info0("Node \"" + event.Node.Name + "\" becomes unavaliable.")
 					lb.ring.RemoveHash(event.Node.Hash())
 				}
@@ -105,19 +105,19 @@ func (lb *ServiceLB) Close() {
 	<-lb.stop
 }
 
-func (lb *ServiceLB) selectNode(helper func() server.Bucket) (*ServiceNode, error) {
+func (lb *ServiceLB) selectNode(helper func() server.Bucket) (*server.RPCNode, error) {
 	bucket := helper()
 	if bucket == nil {
 		return nil, ErrNodeMissing
 	}
-	node, ok := bucket.(*ServiceNode)
+	node, ok := bucket.(*server.RPCNode)
 	if !ok {
 		return nil, ErrNodeType
 	}
 	return node, nil
 }
 
-func (lb *ServiceLB) HashSelect(h server.Hashable) (*ServiceNode, error) {
+func (lb *ServiceLB) HashSelect(h server.Hashable) (*server.RPCNode, error) {
 	return lb.selectNode(func() server.Bucket {
 		lb.lock.RLock()
 		defer lb.lock.RUnlock()
@@ -126,7 +126,7 @@ func (lb *ServiceLB) HashSelect(h server.Hashable) (*ServiceNode, error) {
 	})
 }
 
-func (lb *ServiceLB) HashValueSelect(hash uint32) (*ServiceNode, error) {
+func (lb *ServiceLB) HashValueSelect(hash uint32) (*server.RPCNode, error) {
 	return lb.selectNode(func() server.Bucket {
 		lb.lock.RLock()
 		defer lb.lock.RUnlock()
@@ -135,7 +135,7 @@ func (lb *ServiceLB) HashValueSelect(hash uint32) (*ServiceNode, error) {
 	})
 }
 
-func (lb *ServiceLB) RoundRobinSelect() (*ServiceNode, error) {
+func (lb *ServiceLB) RoundRobinSelect() (*server.RPCNode, error) {
 	return lb.selectNode(func() server.Bucket {
 		round := atomic.AddUint32(&lb.round, 1)
 		lb.lock.RLock()

@@ -5,8 +5,8 @@ const RPC_DEBUG_PATH = "/__rpc_linker_svc_debug"
 
 // push message group.
 type MessageGroup struct {
-	Msgs  []Message
-	Users []string
+	Msgs    []Message
+	Session []string
 }
 
 type MessagePushArguments struct {

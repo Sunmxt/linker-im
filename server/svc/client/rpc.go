@@ -3,13 +3,10 @@ package client
 import (
 	"errors"
 	"github.com/Sunmxt/linker-im/proto"
-	"net/rpc"
+	"github.com/Sunmxt/linker-im/server"
 )
 
-type ServiceClient struct {
-	Extra interface{}
-	*rpc.Client
-}
+type ServiceClient server.RPCClient
 
 func (c *ServiceClient) Echo(echo string) (string, error) {
 	var reply string

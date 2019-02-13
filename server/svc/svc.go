@@ -21,6 +21,8 @@ type Service struct {
 	Reg       dig.Registry
 	ID        server.NodeID
 	fatal     chan error
+
+	serial TimeSerializer
 }
 
 func (svc *Service) Run() {

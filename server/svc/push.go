@@ -5,6 +5,7 @@ import (
 )
 
 func (s *Service) push(session string, msgs []*proto.MessageBody) ([]proto.PushResult, error) {
+	// Serialize
 	total := uint32(len(msgs))
 	result := make([]proto.PushResult, 0, total)
 	stamp, seq := s.serial.Get(total)
@@ -18,5 +19,6 @@ func (s *Service) push(session string, msgs []*proto.MessageBody) ([]proto.PushR
 			},
 		})
 	}
+
 	return result, nil
 }

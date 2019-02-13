@@ -4,6 +4,8 @@ import (
 	"errors"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
+	"github.com/Sunmxt/linker-im/server"
+	sc "github.com/Sunmxt/linker-im/server/svc/client"
 	"sync"
 )
 
@@ -61,7 +63,7 @@ func (g *Gate) randomPush(session string, msgs []proto.MessageBody) ([]proto.Mes
 	return nil, errors.New("Not implemented.")
 }
 
-func (g *Gate) bucketPush(wg *sync.WaitGroup, node *ServiceNode, bucket *MessageBucket, session string, connTimeout int) error {
+func (g *Gate) bucketPush(wg *sync.WaitGroup, node *server.RPCNode, bucket *MessageBucket, session string, connTimeout int) error {
 	defer wg.Done()
 	client, err := node.Connect(0)
 	if err != nil {
@@ -72,7 +74,8 @@ func (g *Gate) bucketPush(wg *sync.WaitGroup, node *ServiceNode, bucket *Message
 		log.Error("bucketPush connection failure: " + err.Error())
 		return err
 	}
-	if bucket.result, err = client.Push(session, bucket.slot); err != nil {
+
+	if bucket.result, err = (*sc.ServiceClient)(client).Push(session, bucket.slot); err != nil {
 		log.Error("bucketPush RPC failure: " + err.Error())
 	}
 	node.Disconnect(client, err)

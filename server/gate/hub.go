@@ -156,7 +156,7 @@ func (h *Hub) KeyPush(key string, msgs []proto.Message) (uint, uint) {
 // Push groups of messages.
 func (h *Hub) Push(groups []proto.MessageGroup) error {
 	for _, g := range groups {
-		for _, u := range g.Users {
+		for _, u := range g.Session {
 			h.KeyPush(u, g.Msgs)
 		}
 	}

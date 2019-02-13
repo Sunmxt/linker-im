@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
+	"github.com/Sunmxt/linker-im/server"
 	sc "github.com/Sunmxt/linker-im/server/svc/client"
 	guuid "github.com/satori/go.uuid"
 	"io"
@@ -29,7 +30,7 @@ type APIRequestContext struct {
 	Data        interface{}
 
 	RPC        *sc.ServiceClient
-	node       *ServiceNode
+	node       *server.RPCNode
 	StatusCode int
 	Namespace  string
 	Group      string
@@ -110,15 +111,17 @@ func (ctx *APIRequestContext) ParseTimeout() error {
 
 func (ctx *APIRequestContext) BeginRPC() (*sc.ServiceClient, error) {
 	var err error
+	var rawRPC *server.RPCClient
 	ctx.node, err = gate.LB.RoundRobinSelect()
 	if err != nil {
 		return nil, err
 	}
 	if ctx.EnableTimeout {
-		ctx.RPC, err = ctx.node.Connect(ctx.Timeout)
+		rawRPC, err = ctx.node.Connect(ctx.Timeout)
 	} else {
-		ctx.RPC, err = ctx.node.TryConnect()
+		rawRPC, err = ctx.node.TryConnect()
 	}
+	ctx.RPC = (*sc.ServiceClient)(rawRPC)
 	return ctx.RPC, err
 }
 
@@ -150,7 +153,7 @@ func (ctx *APIRequestContext) ParseAndGetMessagingClientTuple() (string, string,
 
 func (ctx *APIRequestContext) EndRPC(err error) {
 	if ctx.RPC != nil && ctx.node != nil {
-		ctx.node.Disconnect(ctx.RPC, err)
+		ctx.node.Disconnect((*server.RPCClient)(ctx.RPC), err)
 	}
 	ctx.RPC = nil
 	ctx.node = nil

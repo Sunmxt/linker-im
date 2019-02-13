@@ -23,24 +23,14 @@ func (svc ServiceRPC) Echo(args *string, reply *string) error {
 }
 
 // Push message sequences.
-func (svc ServiceRPC) Push(msg *proto.RawMessagePushArguments, reply *proto.MessagePushResult) error {
-	return fmt.Errorf("Message pushing not avaliable.")
+func (svc ServiceRPC) Push(args *proto.RawMessagePushArguments, reply *proto.MessagePushResult) error {
+	result, err := service.push(args.Session, args.Msgs)
+	reply.Replies = result
+	return err
 }
 
 func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
-	return nil
-}
-
-func (svc ServiceRPC) logError(err error) {
-	if err == nil {
-		return
-	}
-	switch err.(type) {
-	case server.AuthError:
-		svc.log.Info1("Resource authorization error: " + err.Error())
-	default:
-		svc.log.Info0("RPC Error: " + err.Error())
-	}
+	return errors.New("Not implemented.")
 }
 
 func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.EntityListReply) error {
