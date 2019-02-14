@@ -117,9 +117,6 @@ func (options *GatewayOptions) SetDefault() error {
 	if options.RPCPublishEndpoint.String() == "" {
 		return errors.New("Missing RPC publish address. (see \"-rpc-publish\")")
 	}
-	if options.RPCPublishEndpoint.Host == "localhost" || options.RPCPublishEndpoint.Host == "127.0.0.1" {
-		log.Warn("RPC publish a local address: " + options.RPCPublishEndpoint.String())
-	}
 	if options.RPCPublishEndpoint.Port == 0 || options.RPCPublishEndpoint.Port > 0xFFFF {
 		options.RPCPublishEndpoint.Port = options.RPCEndpoint.Port
 	}
@@ -131,6 +128,9 @@ func (options *GatewayOptions) SetDefault() error {
 	}
 	if options.RPCEndpoint.Scheme == "" {
 		options.RPCEndpoint.Scheme = "tcp"
+	}
+	if options.RPCPublishEndpoint.Host == "localhost" || options.RPCPublishEndpoint.Host == "127.0.0.1" {
+		log.Warn("RPC publish a local address: " + options.RPCPublishEndpoint.String())
 	}
 	return nil
 }
@@ -160,7 +160,7 @@ func configureParse() (*GatewayOptions, error) {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
 	}
-	if rpcPub, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "127.0.0.1"); err != nil {
+	if rpcPub, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "127.0.0.1:0"); err != nil {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
 	}

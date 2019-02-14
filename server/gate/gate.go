@@ -11,7 +11,6 @@ import (
 )
 
 var Config *GatewayOptions
-var NodeID server.NodeID
 
 type Gate struct {
 	config    *GatewayOptions

@@ -69,10 +69,10 @@ func (g *Gate) Discover() {
 		Name: "gateway-" + g.ID.String(),
 		Metadata: map[string]string{
 			"linker-rpc":    g.config.RPCPublishEndpoint.String(),
-			"linker-nodeid": NodeID.String(),
+			"linker-nodeid": g.ID.String(),
 			"linker-role":   "gate",
 		},
-		Timeout: 300,
+		Timeout: 3,
 	}
 	svc.Publish(g.Node)
 	log.Info0("Publish gateway node \"" + g.Node.Name + "\" of service \"" + proto.DIG_GATE_SERVICE_NAME + "\".")
@@ -81,7 +81,7 @@ func (g *Gate) Discover() {
 		changed, err := g.Dig.Poll(func(notify *dig.Notification) {
 			switch notify.Event {
 			case dig.EVENT_NODE_FOCUS:
-				log.Info0("Watch node \"" + notify.Name + "\"")
+				log.Info2("Watch node \"" + notify.Name + "\"")
 
 			case dig.EVENT_SVC_NODE_FOUND:
 				log.Info0("Discover node \"" + notify.Name + "\" of service \"" + notify.Service.Name() + "\".")
@@ -118,12 +118,6 @@ func (g *Gate) Discover() {
 			log.Info0("Nodes of service \"" + proto.DIG_GATE_SERVICE_NAME + "\": " + strings.Join(svc.Nodes(), ",") + ".")
 			log.Info0("Nodes of service \"" + proto.DIG_SERVICE_NAME + "\": " + strings.Join(svcSvc.Nodes(), ",") + ".")
 		}
-		log.DebugLazy(func() string {
-			return "Nodes of service \"" + proto.DIG_GATE_SERVICE_NAME + "linker-gateway\": " + strings.Join(svc.Nodes(), ",") + "."
-		})
-		log.DebugLazy(func() string {
-			return "Nodes of service \"" + proto.DIG_SERVICE_NAME + "linker-gateway\": " + strings.Join(svcSvc.Nodes(), ",") + "."
-		})
 		time.Sleep(time.Second)
 	}
 
