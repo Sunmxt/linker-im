@@ -207,16 +207,43 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 	ctx.ResponseError(proto.SUCCEED, "")
 }
 
+func Subscribe(w http.ResponseWriter, req *http.Request) {
+	var sub proto.Subscription
+	ctx, err := NewRequestContext(w, req, &sub)
+	if err != nil {
+		return
+	}
+	switch req.Method {
+	case "POST":
+		sub.Op = proto.OP_SUB_ADD
+	case "DELETE":
+		sub.Op = proto.OP_SUB_CANCEL
+	}
+	sub.Namespace = ctx.Namespace
+	if err = gate.subscribe(sub); err != nil {
+		if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
+			log.Error("RPC Error: " + err.Error())
+			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
+		} else {
+			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
+		}
+	}
+	ctx.ResponseError(proto.SUCCEED, "")
+}
+
 func (g *Gate) InitHTTP() error {
 	g.Router = gmux.NewRouter()
 
-	log.Info0("Register HTTP endpoint for entity modification \"/namespace\"")
+	log.Info0("Register HTTP endpoint \"/v1/namespace\", \"/v1/group\", \"/v1/user\".")
 	g.Router.HandleFunc("/v1/{entity:namespace|group|user}", EntityList).Methods("GET")
 	g.Router.HandleFunc("/v1/{entity:namespace|group|user}", EntityAlter).Methods("POST", "DELETE")
 
-	log.Info0("Register HTTP endpoint \"msg\"")
+	log.Info0("Register HTTP endpoint \"/v1/msg\"")
 	g.Router.HandleFunc("/v1/msg", PullMessage).Methods("GET")
 	g.Router.HandleFunc("/v1/msg", PushMessage).Methods("POST")
+
+	log.Info0("Register HTTP endpoint \"/v1/sub\"")
+	g.Router.HandleFunc("/v1/sub", Subscribe).Methods("POST", "DELETE")
 
 	return nil
 }

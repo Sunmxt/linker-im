@@ -64,8 +64,15 @@ func (m *Model) Subscribe(namespace, group string, users []string) error {
 	if _, err := bm.SetDefaults(kv); err != nil {
 		return err
 	}
-	// Update mapping.
 	return nil
+}
+
+func (m *Model) GetSubscription(namespace, group string) ([]string, error) {
+	return m.listMetadata("groups." + namespace + "." + group)
+}
+
+func (m *Model) Unsubscribe(namespace, group string, users []string) error {
+	return m.delMetadata("groups."+namespace+"."+group, users)
 }
 
 func (m *Model) setMetadata(key string, metas map[string][]byte, isDefault bool) error {

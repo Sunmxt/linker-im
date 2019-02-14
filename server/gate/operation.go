@@ -81,3 +81,17 @@ func (g *Gate) bucketPush(wg *sync.WaitGroup, node *server.RPCNode, bucket *Mess
 	node.Disconnect(client, err)
 	return err
 }
+
+func (g *Gate) subscribe(sub proto.Subscription) error {
+	var client *server.RPCClient
+	node, err := g.LB.RoundRobinSelect()
+	if err != nil {
+		return err
+	}
+	if client, err = node.Connect(0); err != nil {
+		return err
+	}
+	err = (*sc.ServiceClient)(client).Subscribe(&sub)
+	node.Disconnect(client, err)
+	return err
+}

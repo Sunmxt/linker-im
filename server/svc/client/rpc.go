@@ -99,13 +99,9 @@ func (c *ServiceClient) AddUser(namespace string, users []string) error {
 	return c.alterEntity(proto.ENTITY_ADD, proto.ENTITY_USER, namespace, users)
 }
 
-func (c *ServiceClient) Subscribe(namespace string, user string, group string) error {
+func (c *ServiceClient) Subscribe(sub *proto.Subscription) error {
 	var msg string
-	if err := c.Client.Call("ServiceRPC.Subscribe", &proto.Subscription{
-		Namespace: namespace,
-		User:      user,
-		Group:     group,
-	}, &msg); err != nil {
+	if err := c.Client.Call("ServiceRPC.Subscribe", sub, &msg); err != nil {
 		return err
 	}
 	if msg != "" {

@@ -4,14 +4,14 @@ import (
 	"github.com/Sunmxt/linker-im/proto"
 )
 
-func (s *Service) push(session string, msgs []*proto.MessageBody) ([]proto.PushResult, error) {
+func (s *Service) push(key string, msgs []*proto.MessageBody) ([]proto.PushResult, error) {
 	// Serialize
 	total := uint32(len(msgs))
 	result := make([]proto.PushResult, 0, total)
 	stamp, seq := s.serial.Get(total)
 	seq -= total
 	for idx := range msgs {
-		msgs[idx].User = session
+		msgs[idx].User = key
 		result = append(result, proto.PushResult{
 			MessageIdentifier: proto.MessageIdentifier{
 				Timestamp: stamp,
@@ -19,6 +19,5 @@ func (s *Service) push(session string, msgs []*proto.MessageBody) ([]proto.PushR
 			},
 		})
 	}
-
 	return result, nil
 }

@@ -30,7 +30,15 @@ func (svc ServiceRPC) Push(args *proto.RawMessagePushArguments, reply *proto.Mes
 }
 
 func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
-	return errors.New("Not implemented.")
+	switch args.Op {
+	case proto.OP_SUB_ADD:
+		return service.Model.Subscribe(args.Namespace, args.Group, []string{args.Session})
+	case proto.OP_SUB_CANCEL:
+		ilog.Info0("sss")
+		return service.Model.Unsubscribe(args.Namespace, args.Group, []string{args.Session})
+	default:
+		return errors.New("Invalid operation for subscription.")
+	}
 }
 
 func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.EntityListReply) error {

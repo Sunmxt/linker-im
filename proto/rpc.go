@@ -21,16 +21,22 @@ type RawMessagePushArguments struct {
 
 type PushResult struct {
 	MessageIdentifier
-	Msg string `json:"m"`
+	Msg string `json:"m,omitempty"`
 }
 type MessagePushResult struct {
 	Replies []PushResult
 }
 
+const (
+	OP_SUB_ADD    = uint8(0)
+	OP_SUB_CANCEL = uint8(1)
+)
+
 type Subscription struct {
-	Namespace string
-	User      string
-	Group     string
+	Namespace string `json:"-"`
+	Session   string `json:"s"`
+	Group     string `json:"g"`
+	Op        uint8  `json:"-"`
 }
 
 const (
