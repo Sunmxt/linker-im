@@ -34,7 +34,6 @@ func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
 	case proto.OP_SUB_ADD:
 		return service.Model.Subscribe(args.Namespace, args.Group, []string{args.Session})
 	case proto.OP_SUB_CANCEL:
-		ilog.Info0("sss")
 		return service.Model.Unsubscribe(args.Namespace, args.Group, []string{args.Session})
 	default:
 		return errors.New("Invalid operation for subscription.")
