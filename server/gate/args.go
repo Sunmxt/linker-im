@@ -38,6 +38,9 @@ type GatewayOptions struct {
 	// Redis pool maximum active connections.
 	RedisPoolActiveMax *cmdline.UintValue
 
+	// Connection buffer size.
+	ConnectionBufferSize *cmdline.UintValue
+
 	// Route timeout.
 	RouteTimeout *cmdline.UintValue
 
@@ -174,14 +177,15 @@ func configureParse() (*GatewayOptions, error) {
 		RedisEndpoint:   redis_endpoint,
 		RedisPrefix:     cmdline.NewStringValueDefault("linker"),
 		//ServiceEndpoints:   serviceEndpoints,
-		RouteTimeout:       cmdline.NewUintValueDefault(10),
-		MessageBulkTime:    cmdline.NewUintValueDefault(50),
-		RedisPoolIdleMax:   cmdline.NewUintValueDefault(100),
-		RedisPoolActiveMax: cmdline.NewUintValueDefault(100),
-		ActiveTimeout:      cmdline.NewUintValueDefault(5000),
-		DebugMode:          cmdline.NewBoolValueDefault(false),
-		RPCPublishEndpoint: rpcPub,
-		RPCEndpoint:        rpcBind,
+		RouteTimeout:         cmdline.NewUintValueDefault(10),
+		MessageBulkTime:      cmdline.NewUintValueDefault(50),
+		RedisPoolIdleMax:     cmdline.NewUintValueDefault(100),
+		RedisPoolActiveMax:   cmdline.NewUintValueDefault(100),
+		ActiveTimeout:        cmdline.NewUintValueDefault(5000),
+		ConnectionBufferSize: cmdline.NewUintValueDefault(1024),
+		DebugMode:            cmdline.NewBoolValueDefault(false),
+		RPCPublishEndpoint:   rpcPub,
+		RPCEndpoint:          rpcBind,
 	}
 
 	flag.Var(options.ExternalConfig, "config", "Configure YAML.")
@@ -199,6 +203,7 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.RPCEndpoint, "rpc", "RPC endpoint.")
 	flag.Var(options.RPCPublishEndpoint, "rpc-publish", "RPC publish endpoint.")
 	flag.Var(options.RouteTimeout, "route-timeout", "route timeout.")
+	flag.Var(options.ConnectionBufferSize, "connection-bufsize", "Max number of buffered message for a connection.")
 
 	flag.Parse()
 

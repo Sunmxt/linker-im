@@ -15,7 +15,7 @@ type MessageBucket struct {
 	result []proto.PushResult
 }
 
-func (g *Gate) push(session string, msgs []proto.MessageBody) ([]*proto.PushResult, error) {
+func (g *Gate) push(namespace, session string, msgs []proto.MessageBody) ([]*proto.PushResult, error) {
 	// Dispatch
 	buckets := make(map[uint32]*MessageBucket)
 	for idx := range msgs {
@@ -37,7 +37,7 @@ func (g *Gate) push(session string, msgs []proto.MessageBody) ([]*proto.PushResu
 			return nil, err
 		}
 		wg.Add(1)
-		go g.bucketPush(&wg, node, bucket, session, 0)
+		go g.bucketPush(&wg, node, bucket, session, namespace, 0)
 	}
 	wg.Wait()
 
@@ -59,11 +59,11 @@ func (g *Gate) push(session string, msgs []proto.MessageBody) ([]*proto.PushResu
 	return result, nil
 }
 
-func (g *Gate) randomPush(session string, msgs []proto.MessageBody) ([]proto.MessageIdentifier, error) {
+func (g *Gate) randomPush(namespace, session string, msgs []proto.MessageBody) ([]proto.MessageIdentifier, error) {
 	return nil, errors.New("Not implemented.")
 }
 
-func (g *Gate) bucketPush(wg *sync.WaitGroup, node *server.RPCNode, bucket *MessageBucket, session string, connTimeout int) error {
+func (g *Gate) bucketPush(wg *sync.WaitGroup, node *server.RPCNode, bucket *MessageBucket, session, namespace string, connTimeout int) error {
 	defer wg.Done()
 	client, err := node.Connect(0)
 	if err != nil {
@@ -75,7 +75,7 @@ func (g *Gate) bucketPush(wg *sync.WaitGroup, node *server.RPCNode, bucket *Mess
 		return err
 	}
 
-	if bucket.result, err = (*sc.ServiceClient)(client).Push(session, bucket.slot); err != nil {
+	if bucket.result, err = (*sc.ServiceClient)(client).Push(namespace, session, bucket.slot); err != nil {
 		log.Error("bucketPush RPC failure: " + err.Error())
 	}
 	node.Disconnect(client, err)

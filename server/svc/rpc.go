@@ -24,7 +24,17 @@ func (svc ServiceRPC) Echo(args *string, reply *string) error {
 
 // Push message sequences.
 func (svc ServiceRPC) Push(args *proto.RawMessagePushArguments, reply *proto.MessagePushResult) error {
-	result, err := service.push(args.Session, args.Msgs)
+	result := make([]proto.PushResult, len(args.Msgs))
+	err := service.serial.SerializeMessage(args.Session, args.Msgs, result)
+	if err != nil {
+		return err
+	}
+	msgs := make([]proto.Message, len(args.Msgs))
+	for idx := range msgs {
+		msgs[idx].MessageBody = args.Msgs[idx]
+		msgs[idx].MessageIdentifier = result[idx].MessageIdentifier
+	}
+	service.pushBulk(args.Namespace, msgs, result)
 	reply.Replies = result
 	return err
 }

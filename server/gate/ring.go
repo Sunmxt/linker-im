@@ -56,7 +56,7 @@ func (r *Ring) Read() *proto.Message {
 }
 
 func (r *Ring) Count() uint64 {
-	rc, wc := r.writec, r.readc
+	wc, rc := r.writec, r.readc
 	if wc < rc {
 		return 0
 	}

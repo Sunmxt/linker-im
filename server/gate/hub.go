@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const HUB_RING_DEFAULT_BUFFER_SIZE = 1024
+
 // Hub is message exchange.
 type Hub struct {
 	KeyConn   sync.Map
@@ -18,10 +20,14 @@ type Hub struct {
 	sigRoute chan *Connection
 }
 
-func NewHub(meta ConnectMetadata) *Hub {
+func NewHub(meta ConnectMetadata, bufSize uint) *Hub {
+	if bufSize < 2 {
+		bufSize = HUB_RING_DEFAULT_BUFFER_SIZE
+	}
 	return &Hub{
 		Meta:     meta,
 		sigRoute: make(chan *Connection),
+		BufSize:  bufSize,
 	}
 }
 
@@ -145,7 +151,7 @@ func (h *Hub) Route(key string) *Connection {
 }
 
 // Push messages by key.
-func (h *Hub) KeyPush(key string, msgs []proto.Message) (uint, uint) {
+func (h *Hub) KeyPush(key string, msgs []*proto.Message) (uint, uint) {
 	var conn *Connection
 	if conn = h.Route(key); conn == nil {
 		return 0, 0
@@ -156,8 +162,8 @@ func (h *Hub) KeyPush(key string, msgs []proto.Message) (uint, uint) {
 // Push groups of messages.
 func (h *Hub) Push(groups []proto.MessageGroup) error {
 	for _, g := range groups {
-		for _, u := range g.Session {
-			h.KeyPush(u, g.Msgs)
+		for _, key := range g.Keys {
+			h.KeyPush(key, g.Msgs)
 		}
 	}
 	return nil

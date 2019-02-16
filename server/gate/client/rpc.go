@@ -13,7 +13,7 @@ func (c *GateClient) Echo(echo string) (string, error) {
 	return reply, err
 }
 
-func (c *GateClient) Push(session string, msgs []proto.MessageGroup) error {
+func (c *GateClient) Push(msgs []proto.MessageGroup) error {
 	if err := c.Client.Call("GateRPC.Push", &proto.MessagePushArguments{
 		Gups: msgs,
 	}, &struct{}{}); err != nil {

@@ -25,6 +25,7 @@ type Service struct {
 	fatal    chan error
 	serial   TimeSerializer
 	gateNode sync.Map
+	gateBuf  sync.Map
 }
 
 func (svc *Service) Run() {

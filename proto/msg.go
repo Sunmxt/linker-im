@@ -1,8 +1,8 @@
 package proto
 
 type MessageIdentifier struct {
-	Timestamp uint64 `json:"t"`
-	Sequence  uint32 `json:"s"`
+	Timestamp uint64 `json:"t,omitempty"`
+	Sequence  uint32 `json:"s,omitempty"`
 }
 
 type MessageBody struct {
@@ -12,8 +12,8 @@ type MessageBody struct {
 }
 
 type Message struct {
-	ID   *MessageIdentifier
-	Body MessageBody
+	MessageIdentifier
+	*MessageBody
 }
 
 type MessageCheck struct {

@@ -11,8 +11,8 @@ import (
 
 type GateRPC struct{}
 
-func (r GateRPC) Push(msgs *proto.MessagePushArguments, reply *struct{}) error {
-	return gate.Hub.Push(msgs.Gups)
+func (r GateRPC) Push(args *proto.MessagePushArguments, reply *struct{}) error {
+	return gate.Hub.Push(args.Gups)
 }
 
 func Health(writer http.ResponseWriter, req *http.Request) {

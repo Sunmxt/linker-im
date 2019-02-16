@@ -16,11 +16,12 @@ func (c *ServiceClient) Echo(echo string) (string, error) {
 	return reply, nil
 }
 
-func (c *ServiceClient) Push(session string, msgs []*proto.MessageBody) ([]proto.PushResult, error) {
+func (c *ServiceClient) Push(namespace, session string, msgs []*proto.MessageBody) ([]proto.PushResult, error) {
 	reply := proto.MessagePushResult{}
 	if err := c.Client.Call("ServiceRPC.Push", &proto.RawMessagePushArguments{
-		Msgs:    msgs,
-		Session: session,
+		Msgs:      msgs,
+		Session:   session,
+		Namespace: namespace,
 	}, &reply); err != nil {
 		return nil, err
 	}

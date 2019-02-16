@@ -130,7 +130,7 @@ func PushMessage(w http.ResponseWriter, req *http.Request) {
 				ireq.Msgs[idx].Raw = string(bin)
 			}
 		}
-		if ctx.Data, err = gate.push(session, ireq.Msgs); err != nil {
+		if ctx.Data, err = gate.push(ctx.Namespace, session, ireq.Msgs); err != nil {
 			if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
 				log.Error("RPC Error: " + err.Error())
 				ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
@@ -179,7 +179,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		timeout = -1
 	}
 
-	if conn, err = gate.Hub.Connect(usr, ConnectMetadata{
+	if conn, err = gate.Hub.Connect(ctx.Namespace+"."+usr, ConnectMetadata{
 		Proto:   PROTO_HTTP,
 		Remote:  req.RemoteAddr,
 		Timeout: timeout,
@@ -197,7 +197,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 	resp := make([]interface{}, 0, len(msg))
 	if enc == "b64" {
 		for idx := range msg {
-			msg[idx].Body.Raw = base64.StdEncoding.EncodeToString([]byte(msg[idx].Body.Raw))
+			msg[idx].MessageBody.Raw = base64.StdEncoding.EncodeToString([]byte(msg[idx].MessageBody.Raw))
 		}
 	}
 	for idx := range msg {

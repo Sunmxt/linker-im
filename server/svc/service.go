@@ -29,6 +29,5 @@ func (svc *Service) InitService() error {
 	if svc.Reg, err = dig.Connect("redis", svc.Redis, svc.Config.RedisPrefix.Value); err != nil {
 		return err
 	}
-
 	return nil
 }
