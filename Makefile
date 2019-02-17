@@ -5,7 +5,7 @@ export GOPATH:=$(PROJECT_ROOT)/build
 
 BINARIES:=bin/linker-gate
 
-all: format bin/linker-gate bin/linker-svc
+all: format bin/linker-gate bin/linker-svc bin/linker-bench
 
 format:
 	@for pkg in $$(cat "$(PROJECT_ROOT)/GOPACKAGES"); do \
@@ -13,9 +13,9 @@ format:
 		go fmt "$$pkg";									\
 	done
 
-#test: build-path
-#	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/test
-    
+bin/linker-bench: build-path
+	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/tools/linker-bench
+
 bin/linker-gate: build-path
 	go install -v -gcflags='all=-N -l' github.com/Sunmxt/linker-im/server/linker-gate
 
