@@ -82,7 +82,7 @@ func (g *Gate) bucketPush(wg *sync.WaitGroup, node *server.RPCNode, bucket *Mess
 	return err
 }
 
-func (g *Gate) subscribe(sub proto.Subscription) error {
+func (g *Gate) roundRobinDo(do func(*sc.ServiceClient) error) error {
 	var client *server.RPCClient
 	node, err := g.LB.RoundRobinSelect()
 	if err != nil {
@@ -91,7 +91,38 @@ func (g *Gate) subscribe(sub proto.Subscription) error {
 	if client, err = node.Connect(0); err != nil {
 		return err
 	}
-	err = (*sc.ServiceClient)(client).Subscribe(&sub)
+	err = do((*sc.ServiceClient)(client))
 	node.Disconnect(client, err)
 	return err
+}
+
+func (g *Gate) subscribe(sub proto.Subscription) error {
+	return g.roundRobinDo(func(client *sc.ServiceClient) error {
+		return client.Subscribe(&sub)
+	})
+}
+
+func (g *Gate) connect(conn *proto.ConnectV1) (*proto.ConnectResultV1, error) {
+	var reply *proto.ConnectResultV1
+	var err error
+	g.roundRobinDo(func(client *sc.ServiceClient) error {
+		reply, err = client.Connect(conn)
+		return err
+	})
+	if err != nil {
+		return reply, err
+	}
+	if reply.Key == "" {
+		reply.Key = reply.Session
+	}
+	gate.KeySession.Store(reply.Session, reply.Key)
+	return reply, nil
+}
+
+func (g *Gate) hubConnect(session string, meta ConnectMetadata) (*Connection, error) {
+	key := g.sessionKey(session)
+	if key == "" {
+		return nil, server.NewAuthError(errors.New("Connection rejected."))
+	}
+	return g.Hub.Connect(key, meta)
 }

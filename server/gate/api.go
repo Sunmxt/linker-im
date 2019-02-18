@@ -179,12 +179,17 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		timeout = -1
 	}
 
-	if conn, err = gate.Hub.Connect(ctx.Namespace+"."+usr, ConnectMetadata{
+	if conn, err = gate.hubConnect(usr, ConnectMetadata{
 		Proto:   PROTO_HTTP,
 		Remote:  req.RemoteAddr,
 		Timeout: timeout,
 	}); err != nil {
-		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, err.Error())
+		if !server.IsAuthError(err) {
+			log.Error("Hub connect failure: " + err.Error())
+			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, err.Error())
+		} else {
+			ctx.ResponseError(proto.ACCESS_DEINED, err.Error())
+		}
 		return
 	}
 	if bulk > 0 {
@@ -221,13 +226,33 @@ func Subscribe(w http.ResponseWriter, req *http.Request) {
 	}
 	sub.Namespace = ctx.Namespace
 	if err = gate.subscribe(sub); err != nil {
-		if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
+		if !server.IsAuthError(err) {
 			log.Error("RPC Error: " + err.Error())
 			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
 		} else {
-			ctx.ResponseError(proto.ACCESS_DEINED, authErr.Error())
+			ctx.ResponseError(proto.ACCESS_DEINED, err.Error())
 		}
 	}
+	ctx.ResponseError(proto.SUCCEED, "")
+}
+
+func Connect(w http.ResponseWriter, req *http.Request) {
+	var conn proto.ConnectV1
+	var result *proto.ConnectResultV1
+	ctx, err := NewRequestContext(w, req, &conn)
+	if err != nil {
+		return
+	}
+	conn.Namespace = ctx.Namespace
+	if result, err = gate.connect(&conn); err != nil {
+		if !server.IsAuthError(err) {
+			log.Error("RPC Error: " + err.Error())
+			ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "(rpc failure) "+err.Error())
+		} else {
+			ctx.ResponseError(proto.ACCESS_DEINED, err.Error())
+		}
+	}
+	ctx.Data = result
 	ctx.ResponseError(proto.SUCCEED, "")
 }
 
@@ -244,6 +269,9 @@ func (g *Gate) InitHTTP() error {
 
 	log.Info0("Register HTTP endpoint \"/v1/sub\"")
 	g.Router.HandleFunc("/v1/sub", Subscribe).Methods("POST", "DELETE")
+
+	log.Info0("Register HTTP endpoint \"/v1/connect\"")
+	g.Router.HandleFunc("/v1/connect", Connect).Methods("POST")
 
 	return nil
 }

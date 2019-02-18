@@ -21,6 +21,8 @@ type Service struct {
 	Node      *dig.Node
 	Reg       dig.Registry
 	ID        server.NodeID
+	Session   server.SessionPool
+	Auther    server.Authorizer
 
 	fatal    chan error
 	serial   TimeSerializer

@@ -50,6 +50,23 @@ func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
 	}
 }
 
+func (svc ServiceRPC) Connect(conn *proto.ConnectV1, reply *proto.ConnectResultV1) error {
+	session := make(map[string]string)
+	key, err := service.Auther.Connect(conn.Credentials, session)
+	if err != nil {
+		if server.IsAuthError(err) {
+			reply.AuthError = err.Error()
+			return nil
+		}
+		return err
+	}
+	if reply.Session, err = service.Session.Register(session); err != nil {
+		return err
+	}
+	reply.Key = conn.Namespace + "." + key
+	return nil
+}
+
 func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.EntityListReply) error {
 	var err error
 	switch args.Type {
