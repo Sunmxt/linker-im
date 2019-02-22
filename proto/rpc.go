@@ -26,7 +26,9 @@ type PushResult struct {
 }
 
 type MessagePushResult struct {
-	Replies []PushResult
+	Replies     []PushResult
+	IsAuthError bool
+	Msg         string
 }
 
 type EntityAlterArguments struct {

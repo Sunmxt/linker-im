@@ -115,7 +115,7 @@ func (g *Gate) connect(conn *proto.ConnectV1) (*proto.ConnectResultV1, error) {
 	if reply.Key == "" {
 		reply.Key = reply.Session
 	}
-	gate.KeySession.Store(reply.Session, reply.Key)
+	gate.KeySession.Store(conn.Namespace+"."+reply.Session, reply.Key)
 	return reply, nil
 }
 

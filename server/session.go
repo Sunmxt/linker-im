@@ -1,7 +1,7 @@
 package server
 
 type SessionPool interface {
-	Get(string) (map[string]string, error)
-	Register(map[string]string) (string, error)
-	Remove(string) error
+	Get(string, string) (map[string]string, error)
+	Register(string, map[string]string) (string, error)
+	Remove(string, string) error
 }

@@ -179,7 +179,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		timeout = -1
 	}
 
-	if conn, err = gate.hubConnect(usr, ConnectMetadata{
+	if conn, err = gate.hubConnect(ctx.Namespace+"."+usr, ConnectMetadata{
 		Proto:   PROTO_HTTP,
 		Remote:  req.RemoteAddr,
 		Timeout: timeout,
