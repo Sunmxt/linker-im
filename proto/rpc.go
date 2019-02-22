@@ -24,30 +24,12 @@ type PushResult struct {
 	MessageIdentifier
 	Msg string `json:"m,omitempty"`
 }
+
 type MessagePushResult struct {
-	Replies []PushResult
+	Replies     []PushResult
+	IsAuthError bool
+	Msg         string
 }
-
-const (
-	OP_SUB_ADD    = uint8(0)
-	OP_SUB_CANCEL = uint8(1)
-)
-
-type Subscription struct {
-	Namespace string `json:"-"`
-	Session   string `json:"s"`
-	Group     string `json:"g"`
-	Op        uint8  `json:"-"`
-}
-
-const (
-	ENTITY_NAMESPACE = uint8(1)
-	ENTITY_USER      = uint8(2)
-	ENTITY_GROUP     = uint8(3)
-
-	ENTITY_ADD = uint8(1)
-	ENTITY_DEL = uint8(2)
-)
 
 type EntityAlterArguments struct {
 	Namespace string

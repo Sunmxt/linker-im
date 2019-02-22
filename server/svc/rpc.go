@@ -22,11 +22,31 @@ func (svc ServiceRPC) Echo(args *string, reply *string) error {
 	return nil
 }
 
+func rpcAuth(op uint16, namespace, session string) (string, error) {
+	var ident string
+	sessionMap, err := service.Session.Get(namespace, session)
+	if err != nil {
+		return "", errors.New("Session failure: " + err.Error())
+	}
+	if err = service.Auther.Auth(namespace, op, sessionMap); err != nil {
+		return "", errors.New("Operation failure: " + err.Error())
+	}
+	if ident, err = service.Auther.Identifier(namespace, sessionMap); err != nil {
+		return "", errors.New("Identifier resolution failure: " + err.Error())
+	}
+	return ident, nil
+}
+
 // Push message sequences.
 func (svc ServiceRPC) Push(args *proto.RawMessagePushArguments, reply *proto.MessagePushResult) error {
+	ident, err := rpcAuth(proto.OP_PUSH, args.Namespace, args.Session)
 	result := make([]proto.PushResult, len(args.Msgs))
-	err := service.serial.SerializeMessage(args.Session, args.Msgs, result)
 	if err != nil {
+		reply.IsAuthError = true
+		reply.Msg = err.Error()
+		return nil
+	}
+	if err = service.serial.SerializeMessage(ident, args.Msgs, result); err != nil {
 		return err
 	}
 	msgs := make([]proto.Message, len(args.Msgs))
@@ -40,17 +60,45 @@ func (svc ServiceRPC) Push(args *proto.RawMessagePushArguments, reply *proto.Mes
 }
 
 func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
+	ident, err := rpcAuth(proto.OP_SUB, args.Namespace, args.Session)
+	if err != nil {
+		*reply = err.Error()
+		return nil
+	}
 	switch args.Op {
 	case proto.OP_SUB_ADD:
-		return service.Model.Subscribe(args.Namespace, args.Group, []string{args.Session})
+		return service.Model.Subscribe(args.Namespace, args.Group, []string{ident})
 	case proto.OP_SUB_CANCEL:
-		return service.Model.Unsubscribe(args.Namespace, args.Group, []string{args.Session})
+		return service.Model.Unsubscribe(args.Namespace, args.Group, []string{ident})
 	default:
 		return errors.New("Invalid operation for subscription.")
 	}
 }
 
+func (svc ServiceRPC) Connect(conn *proto.ConnectV1, reply *proto.ConnectResultV1) error {
+	session, ident := make(map[string]string), ""
+	err := service.Auther.Connect(conn.Namespace, conn.Credential, session)
+	if err != nil {
+		if server.IsAuthError(err) {
+			reply.AuthError = err.Error()
+			return nil
+		}
+		return err
+	}
+	if reply.Session, err = service.Session.Register(conn.Namespace, session); err != nil {
+		return err
+	}
+	if ident, err = service.Auther.Identifier(conn.Namespace, session); err != nil {
+		reply.AuthError = "Identifier resolution failure: " + err.Error()
+		return nil
+	}
+	reply.Key = conn.Namespace + "." + ident
+	fmt.Println(reply)
+	return nil
+}
+
 func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.EntityListReply) error {
+
 	var err error
 	switch args.Type {
 	case proto.ENTITY_NAMESPACE:

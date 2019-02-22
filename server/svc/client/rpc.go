@@ -110,3 +110,14 @@ func (c *ServiceClient) Subscribe(sub *proto.Subscription) error {
 	}
 	return nil
 }
+
+func (c *ServiceClient) Connect(args *proto.ConnectV1) (*proto.ConnectResultV1, error) {
+	reply := proto.ConnectResultV1{}
+	if err := c.Client.Call("ServiceRPC.Connect", args, &reply); err != nil {
+		return nil, err
+	}
+	if reply.AuthError != "" {
+		return nil, server.NewAuthError(errors.New(reply.AuthError))
+	}
+	return &reply, nil
+}

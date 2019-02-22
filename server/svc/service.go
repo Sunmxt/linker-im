@@ -29,5 +29,12 @@ func (svc *Service) InitService() error {
 	if svc.Reg, err = dig.Connect("redis", svc.Redis, svc.Config.RedisPrefix.Value); err != nil {
 		return err
 	}
+
+	log.Info0("Initialize session pool.")
+	svc.Session = &DefaultSessionPool{}
+
+	log.Info0("Initialize authorizer.")
+	svc.Auther = &DefaultAuthorizer{}
+
 	return nil
 }
