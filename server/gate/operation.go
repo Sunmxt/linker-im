@@ -119,8 +119,8 @@ func (g *Gate) connect(conn *proto.ConnectV1) (*proto.ConnectResultV1, error) {
 	return reply, nil
 }
 
-func (g *Gate) hubConnect(session string, meta ConnectMetadata) (*Connection, error) {
-	key := g.sessionKey(session)
+func (g *Gate) hubConnect(namespace, session string, meta ConnectMetadata) (*Connection, error) {
+	key := g.sessionKey(namespace, session)
 	if key == "" {
 		return nil, server.NewAuthError(errors.New("Connection rejected."))
 	}

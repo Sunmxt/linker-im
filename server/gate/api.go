@@ -145,10 +145,10 @@ func PushMessage(w http.ResponseWriter, req *http.Request) {
 
 func PullMessage(w http.ResponseWriter, req *http.Request) {
 	var (
-		enc, usr string
-		timeout  int
-		conn     *Connection
-		msg      []proto.Message
+		enc, s  string
+		timeout int
+		conn    *Connection
+		msg     []proto.Message
 	)
 
 	ctx, err := NewRequestContext(w, req, nil)
@@ -169,7 +169,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		bulk = -1
 	}
 
-	if enc, usr, err = ctx.ParseAndGetMessagingClientTuple(); err != nil {
+	if enc, s, err = ctx.ParseAndGetMessagingClientTuple(); err != nil {
 		return
 	}
 
@@ -179,7 +179,7 @@ func PullMessage(w http.ResponseWriter, req *http.Request) {
 		timeout = -1
 	}
 
-	if conn, err = gate.hubConnect(ctx.Namespace+"."+usr, ConnectMetadata{
+	if conn, err = gate.hubConnect(ctx.Namespace, s, ConnectMetadata{
 		Proto:   PROTO_HTTP,
 		Remote:  req.RemoteAddr,
 		Timeout: timeout,
