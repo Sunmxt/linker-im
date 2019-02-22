@@ -93,7 +93,6 @@ func (svc ServiceRPC) Connect(conn *proto.ConnectV1, reply *proto.ConnectResultV
 		return nil
 	}
 	reply.Key = conn.Namespace + "." + ident
-	fmt.Println(reply)
 	return nil
 }
 
