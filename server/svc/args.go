@@ -122,6 +122,7 @@ func configureParse() (*ServiceOptions, error) {
 	flag.Var(options.Endpoint, "endpoint", "RPC bing endpoint.")
 	flag.Var(options.RedisEndpoint, "redis-endpoint", "Redis endpoint used for session caching.")
 	flag.Var(options.CacheTimeout, "cache-timeout", "Session cache timeout.")
+	flag.Var(options.RedisPrefix, "redis-prefix", "Redis key prefix.")
 	//flag.Var(options.PersistStorageEndpoint, "persist-endpoint", "Storage endpoint to persist session")
 	//flag.Var(options.DisableMessagePersist, "disable-message-persist", "Do not persist messages.")
 	//flag.Var(options.DisableSessionPersist, "disable-session-persist", "Do not persist sessions.")

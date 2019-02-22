@@ -31,7 +31,3 @@ type HTTPResponse struct {
 	Code    uint32      `json:"code"`
 	Msg     string      `json:"msg"`
 }
-
-type EntityAlterV1 struct {
-	Entities []string `json:"args"`
-}

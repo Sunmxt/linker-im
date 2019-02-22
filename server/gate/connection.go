@@ -52,7 +52,7 @@ func (c *Connection) wait(wake chan struct{}) {
 	wake <- struct{}{}
 }
 
-func (c *Connection) Push(msgs []proto.Message) (uint, uint) {
+func (c *Connection) Push(msgs []*proto.Message) (uint, uint) {
 	if len(msgs) < 1 {
 		return 0, 0
 	}
@@ -62,9 +62,11 @@ func (c *Connection) Push(msgs []proto.Message) (uint, uint) {
 	c.WriteLock.Lock()
 	defer c.WriteLock.Unlock()
 
-	for idx < len(msgs) {
-		override, err := c.Buf.Write(&msgs[idx], readLocked > 0)
-		ilog.Warnf("Drop %d message.", override)
+	for idx := range msgs {
+		override, err := c.Buf.Write(msgs[idx], readLocked > 0)
+		if override {
+			ilog.Warnf("Drop message for full ring buffer.")
+		}
 		if err == ErrRingFull {
 			c.ReadLock.Lock()
 			readLocked = 1
@@ -78,7 +80,7 @@ func (c *Connection) Push(msgs []proto.Message) (uint, uint) {
 	if readLocked > 0 {
 		c.ReadLock.Unlock()
 	}
-	if c.bulk < 0 || c.Buf.Count() > uint64(c.bulk) {
+	if c.bulk < 0 || c.Buf.Count() >= uint64(c.bulk) {
 		c.signal.Broadcast()
 	}
 
@@ -94,7 +96,7 @@ func (c *Connection) consume(buf []proto.Message, max int) ([]proto.Message, int
 		if msg == nil {
 			break
 		}
-		buf = append(buf, *c.Buf.Read())
+		buf = append(buf, *msg)
 	}
 	return buf, count
 }
@@ -135,7 +137,7 @@ func (c *Connection) Receive(buf []proto.Message, max int, bulk int, timeout int
 		}
 
 		now := time.Now()
-		if (timeout >= 0 && now.After(notAfter)) || bulk < 0 {
+		if (timeout >= 0 && now.After(notAfter)) || bulk <= 0 {
 			break
 		}
 

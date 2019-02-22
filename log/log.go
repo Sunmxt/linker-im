@@ -179,39 +179,56 @@ func Panicf(format string, args ...interface{}) {
 	}).Panicf(format, args...)
 }
 
+func copyKV(dst, src map[string]interface{}) {
+}
+
 func TraceMap(kv map[string]interface{}, args ...interface{}) {
-	kv["src"] = sourceInfo()
-	logrus.WithFields(kv).Trace(args...)
+	nkv := make(map[string]interface{}, len(kv)+1)
+	copyKV(nkv, kv)
+	nkv["src"] = sourceInfo()
+	logrus.WithFields(nkv).Trace(args...)
 }
 
 func DebugMap(kv map[string]interface{}, args ...interface{}) {
-	kv["src"] = sourceInfo()
+	nkv := make(map[string]interface{}, len(kv)+1)
+	copyKV(nkv, kv)
+	nkv["src"] = sourceInfo()
 	logrus.WithFields(kv).Debug(args...)
 }
 
 func WarnMap(kv map[string]interface{}, args ...interface{}) {
-	kv["src"] = sourceInfo()
-	logrus.WithFields(kv).Warn(args...)
+	nkv := make(map[string]interface{}, len(kv)+1)
+	copyKV(nkv, kv)
+	nkv["src"] = sourceInfo()
+	logrus.WithFields(nkv).Warn(args...)
 }
 
 func InfoMap(kv map[string]interface{}, args ...interface{}) {
-	kv["src"] = sourceInfo()
-	logrus.WithFields(kv).Info(args...)
+	nkv := make(map[string]interface{}, len(kv)+1)
+	copyKV(nkv, kv)
+	nkv["src"] = sourceInfo()
+	logrus.WithFields(nkv).Info(args...)
 }
 
 func ErrorMap(kv map[string]interface{}, args ...interface{}) {
-	kv["src"] = sourceInfo()
-	logrus.WithFields(kv).Error(args...)
+	nkv := make(map[string]interface{}, len(kv)+1)
+	copyKV(nkv, kv)
+	nkv["src"] = sourceInfo()
+	logrus.WithFields(nkv).Error(args...)
 }
 
 func FatalMap(kv map[string]interface{}, args ...interface{}) {
-	kv["src"] = sourceInfo()
-	logrus.WithFields(kv).Fatal(args...)
+	nkv := make(map[string]interface{}, len(kv)+1)
+	copyKV(nkv, kv)
+	nkv["src"] = sourceInfo()
+	logrus.WithFields(nkv).Fatal(args...)
 }
 
 func PanicMap(kv map[string]interface{}, args ...interface{}) {
-	kv["src"] = sourceInfo()
-	logrus.WithFields(kv).Panic(args...)
+	nkv := make(map[string]interface{}, len(kv)+1)
+	copyKV(nkv, kv)
+	nkv["src"] = sourceInfo()
+	logrus.WithFields(nkv).Panic(args...)
 }
 
 // Logger

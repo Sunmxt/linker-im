@@ -7,6 +7,7 @@ import (
 	"github.com/Sunmxt/linker-im/server/dig"
 	"github.com/gomodule/redigo/redis"
 	"net/http"
+	"sync"
 )
 
 var service *Service
@@ -20,7 +21,13 @@ type Service struct {
 	Node      *dig.Node
 	Reg       dig.Registry
 	ID        server.NodeID
-	fatal     chan error
+	Session   server.SessionPool
+	Auther    server.Authorizer
+
+	fatal    chan error
+	serial   TimeSerializer
+	gateNode sync.Map
+	gateBuf  sync.Map
 }
 
 func (svc *Service) Run() {

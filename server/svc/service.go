@@ -30,5 +30,11 @@ func (svc *Service) InitService() error {
 		return err
 	}
 
+	log.Info0("Initialize session pool.")
+	svc.Session = &DefaultSessionPool{}
+
+	log.Info0("Initialize authorizer.")
+	svc.Auther = &DefaultAuthorizer{}
+
 	return nil
 }

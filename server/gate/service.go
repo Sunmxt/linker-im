@@ -32,7 +32,7 @@ func (g *Gate) InitService() error {
 	log.Info0("Initialize hub.")
 	g.Hub = NewHub(ConnectMetadata{
 		Timeout: int(g.config.ActiveTimeout.Value),
-	})
+	}, g.config.ConnectionBufferSize.Value)
 
 	return nil
 }

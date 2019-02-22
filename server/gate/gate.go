@@ -8,24 +8,25 @@ import (
 	"github.com/gomodule/redigo/redis"
 	gmux "github.com/gorilla/mux"
 	"net/http"
+	"sync"
 )
 
 var Config *GatewayOptions
-var NodeID server.NodeID
 
 type Gate struct {
-	config    *GatewayOptions
-	ID        server.NodeID
-	HTTP      *http.Server
-	Router    *gmux.Router
-	RPCRouter *gmux.Router
-	RPC       *http.Server
-	LB        *ServiceLB
-	Dig       dig.Registry
-	Node      *dig.Node
-	Redis     *redis.Pool
-	Hub       *Hub
-	fatal     chan error
+	config     *GatewayOptions
+	ID         server.NodeID
+	HTTP       *http.Server
+	Router     *gmux.Router
+	RPCRouter  *gmux.Router
+	RPC        *http.Server
+	LB         *ServiceLB
+	Dig        dig.Registry
+	Node       *dig.Node
+	Redis      *redis.Pool
+	Hub        *Hub
+	KeySession sync.Map
+	fatal      chan error
 }
 
 var gate *Gate

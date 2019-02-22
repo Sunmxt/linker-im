@@ -5,8 +5,8 @@ const RPC_DEBUG_PATH = "/__rpc_linker_svc_debug"
 
 // push message group.
 type MessageGroup struct {
-	Msgs  []Message
-	Users []string
+	Msgs []*Message
+	Keys []string
 }
 
 type MessagePushArguments struct {
@@ -15,31 +15,21 @@ type MessagePushArguments struct {
 
 // push raw message.
 type RawMessagePushArguments struct {
-	Msgs []MessageBody
+	Msgs      []*MessageBody
+	Session   string
+	Namespace string
 }
 
 type PushResult struct {
-	ID   MessageIdentifier
-	Code uint8
+	MessageIdentifier
+	Msg string `json:"m,omitempty"`
 }
+
 type MessagePushResult struct {
-	Replies []PushResult
+	Replies     []PushResult
+	IsAuthError bool
+	Msg         string
 }
-
-type Subscription struct {
-	Namespace string
-	User      string
-	Group     string
-}
-
-const (
-	ENTITY_NAMESPACE = uint8(1)
-	ENTITY_USER      = uint8(2)
-	ENTITY_GROUP     = uint8(3)
-
-	ENTITY_ADD = uint8(1)
-	ENTITY_DEL = uint8(2)
-)
 
 type EntityAlterArguments struct {
 	Namespace string
