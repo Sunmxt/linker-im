@@ -22,7 +22,7 @@ func (svc ServiceRPC) Echo(args *string, reply *string) error {
 	return nil
 }
 
-func rpcAuth(op uint16, namespace, session string) (string, error) {
+func rpcAuth(op interface{}, namespace, session string) (string, error) {
 	var ident string
 	sessionMap, err := service.Session.Get(namespace, session)
 	if err != nil {
@@ -39,7 +39,7 @@ func rpcAuth(op uint16, namespace, session string) (string, error) {
 
 // Push message sequences.
 func (svc ServiceRPC) Push(args *proto.RawMessagePushArguments, reply *proto.MessagePushResult) error {
-	ident, err := rpcAuth(proto.OP_PUSH, args.Namespace, args.Session)
+	ident, err := rpcAuth(args, args.Namespace, args.Session)
 	result := make([]proto.PushResult, len(args.Msgs))
 	if err != nil {
 		reply.IsAuthError = true
@@ -60,7 +60,7 @@ func (svc ServiceRPC) Push(args *proto.RawMessagePushArguments, reply *proto.Mes
 }
 
 func (svc ServiceRPC) Subscribe(args *proto.Subscription, reply *string) error {
-	ident, err := rpcAuth(proto.OP_SUB, args.Namespace, args.Session)
+	ident, err := rpcAuth(args, args.Namespace, args.Session)
 	if err != nil {
 		*reply = err.Error()
 		return nil
@@ -97,8 +97,10 @@ func (svc ServiceRPC) Connect(conn *proto.ConnectV1, reply *proto.ConnectResultV
 }
 
 func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.EntityListReply) error {
-
 	var err error
+	if _, err = rpcAuth(args, args.Namespace, args.Session); err != nil {
+		return err
+	}
 	switch args.Type {
 	case proto.ENTITY_NAMESPACE:
 		reply.Entities, err = service.Model.ListNamespace()
@@ -115,13 +117,16 @@ func (svc ServiceRPC) EntityList(args *proto.EntityListArguments, reply *proto.E
 	return nil
 }
 
-func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterArguments, reply *string) error {
+func (svc ServiceRPC) EntityAlter(args *proto.EntityAlterV1, reply *string) error {
 	var err error
 	if args.Operation != proto.ENTITY_ADD && args.Operation != proto.ENTITY_DEL {
 		*reply = fmt.Sprintf("Unknown operation: %v", args.Operation)
 		return nil
 	}
 
+	if _, err = rpcAuth(args, args.Namespace, args.Session); err != nil {
+		return err
+	}
 	if args.Entities == nil || len(args.Entities) < 1 {
 		return nil
 	}

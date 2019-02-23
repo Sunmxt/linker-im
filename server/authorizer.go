@@ -4,7 +4,7 @@ package server
 // according to provided credentials.
 type Authorizer interface {
 	Connect(namespace, credential string, session map[string]string) error
-	Auth(namespace string, op uint16, session map[string]string) error
+	Auth(namespace string, op interface{}, session map[string]string) error
 	Identifier(namespace string, session map[string]string) (string, error)
 }
 

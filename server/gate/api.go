@@ -20,6 +20,10 @@ func EntityList(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		return
 	}
+	_, session, err := ctx.ParseAndGetMessagingClientTuple()
+	if err != nil {
+		return
+	}
 	ctx.Version = 1
 	entity, ok := vars["entity"]
 	if !ok {
@@ -40,11 +44,11 @@ func EntityList(w http.ResponseWriter, req *http.Request) {
 	}
 	switch entity {
 	case "namespace":
-		ctx.Data, err = client.ListNamespace()
+		ctx.Data, err = client.ListNamespace(session)
 	case "user":
-		ctx.Data, err = client.ListUser(ctx.Namespace)
+		ctx.Data, err = client.ListUser(ctx.Namespace, session)
 	case "group":
-		ctx.Data, err = client.ListGroup(ctx.Namespace)
+		ctx.Data, err = client.ListGroup(ctx.Namespace, session)
 	}
 	ctx.EndRPC(err)
 	if err != nil {
@@ -60,7 +64,12 @@ func EntityAlter(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		return
 	}
+	_, ireq.Session, err = ctx.ParseAndGetMessagingClientTuple()
+	if err != nil {
+		return
+	}
 	ctx.Version = 1
+	ireq.Namespace = ctx.Namespace
 	entity, ok := vars["entity"]
 	if !ok {
 		ctx.ResponseError(proto.SERVER_INTERNAL_ERROR, "Variable \"entity\" not found.")
@@ -81,24 +90,18 @@ func EntityAlter(w http.ResponseWriter, req *http.Request) {
 	}
 	switch entity {
 	case "namespace":
-		if req.Method == "POST" {
-			err = client.AddNamespace(ireq.Entities)
-		} else {
-			err = client.DeleteNamespace(ireq.Entities)
-		}
+		ireq.Type = proto.ENTITY_NAMESPACE
 	case "user":
-		if req.Method == "POST" {
-			err = client.AddUser(ctx.Namespace, ireq.Entities)
-		} else {
-			err = client.DeleteUser(ctx.Namespace, ireq.Entities)
-		}
+		ireq.Type = proto.ENTITY_USER
 	case "group":
-		if req.Method == "POST" {
-			err = client.AddGroup(ctx.Namespace, ireq.Entities)
-		} else {
-			err = client.DeleteGroup(ctx.Namespace, ireq.Entities)
-		}
+		ireq.Type = proto.ENTITY_GROUP
 	}
+	if req.Method == "POST" {
+		ireq.Operation = proto.ENTITY_ADD
+	} else {
+		ireq.Operation = proto.ENTITY_DEL
+	}
+	err = client.AlterEntity(&ireq)
 	ctx.EndRPC(err)
 	if err != nil {
 		return

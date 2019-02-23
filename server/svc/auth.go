@@ -2,7 +2,7 @@ package svc
 
 type DefaultAuthorizer struct{}
 
-func (a *DefaultAuthorizer) Auth(namespace string, op uint16, session map[string]string) error {
+func (a *DefaultAuthorizer) Auth(namespace string, op interface{}, session map[string]string) error {
 	return nil
 }
 

@@ -31,15 +31,9 @@ type MessagePushResult struct {
 	Msg         string
 }
 
-type EntityAlterArguments struct {
-	Namespace string
-	Entities  []string
-	Operation uint8
-	Type      uint8
-}
-
 type EntityListArguments struct {
 	Namespace string
+	Session   string
 	Type      uint8
 }
 
