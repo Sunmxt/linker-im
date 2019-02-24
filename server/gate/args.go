@@ -15,8 +15,6 @@ type GatewayOptions struct {
 	ExternalConfig *cmdline.StringValue
 	LogLevel       *cmdline.UintValue
 
-	ManageEndpoint *cmdline.NetEndpointValue
-
 	// Endpoint to bind and serve HTTP API.
 	APIEndpoint *cmdline.NetEndpointValue
 
@@ -44,9 +42,6 @@ type GatewayOptions struct {
 	// Route timeout.
 	RouteTimeout *cmdline.UintValue
 
-	// List of service endpoints.
-	//ServiceEndpoints *cmdline.NetEndpointSetValue
-
 	// Period to check state of service endpoint.
 	// Unhealthy endpoints will be disable automatically.
 	KeepalivePeriod *cmdline.UintValue
@@ -68,27 +63,11 @@ func (options *GatewayOptions) SetDefaultFromConfigure(cfg *config.GatewayConfig
 	if options.LogLevel.IsDefault {
 		options.LogLevel.Value = cfg.LogLevel
 	}
-	if options.ManageEndpoint.IsDefault && cfg.Manage.Endpoint != "" {
-		if err := options.ManageEndpoint.Set(cfg.Manage.Endpoint); err != nil {
-			return err
-		}
-	}
-
 	if options.APIEndpoint.IsDefault && cfg.HTTPConfig.Endpoint != "" {
 		if err := options.APIEndpoint.Set(cfg.HTTPConfig.Endpoint); err != nil {
 			return err
 		}
 	}
-	//if options.ServiceEndpoints.IsDefault && cfg.SVCConfig.Endpoints != nil && len(cfg.SVCConfig.Endpoints) > 0 {
-	//	options.ServiceEndpoints.IsDefault = false
-	//	for k, v := range cfg.SVCConfig.Endpoints {
-	//		ep, err := cmdline.NewNetEndpointValueDefault(options.ServiceEndpoints.ValidSchemes, v)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		options.ServiceEndpoints.Endpoints[k] = ep
-	//	}
-	//}
 	if options.KeepalivePeriod.IsDefault {
 		options.KeepalivePeriod.Value = cfg.SVCConfig.KeepalivePeriod
 	}
@@ -140,25 +119,16 @@ func (options *GatewayOptions) SetDefault() error {
 
 func configureParse() (*GatewayOptions, error) {
 	var err error = nil
-	var api_endpoint, manage_endpoint, redis_endpoint, rpcBind, rpcPub *cmdline.NetEndpointValue
-	//var serviceEndpoints *cmdline.NetEndpointSetValue
+	var api_endpoint, redis_endpoint, rpcBind, rpcPub *cmdline.NetEndpointValue
 
-	if manage_endpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp", "http", "https"}, "127.0.0.1:12361"); err != nil {
-		log.Panicf("Flag value creating failure: %v", err.Error())
-		return nil, err
-	}
 	if api_endpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp", "http", "https"}, "0.0.0.0:12360"); err != nil {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
 	}
-	if redis_endpoint, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, ""); err != nil {
+	if redis_endpoint, err = cmdline.NewNetEndpointValueDefault([]string{"localhost:6379"}, ""); err != nil {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
 	}
-	//if serviceEndpoints, err = cmdline.NewNetEndpointSetValueDefault([]string{"tcp"}, ""); err != nil {
-	//	log.Panicf("Flag value creating failure: %v", err.Error())
-	//	return nil, err
-	//}
 	if rpcBind, err = cmdline.NewNetEndpointValueDefault([]string{"tcp"}, "0.0.0.0:12362"); err != nil {
 		log.Panicf("Flag value creating failure: %v", err.Error())
 		return nil, err
@@ -169,14 +139,12 @@ func configureParse() (*GatewayOptions, error) {
 	}
 
 	options := &GatewayOptions{
-		ExternalConfig:  cmdline.NewStringValue(),
-		LogLevel:        cmdline.NewUintValueDefault(0),
-		KeepalivePeriod: cmdline.NewUintValueDefault(10),
-		ManageEndpoint:  manage_endpoint,
-		APIEndpoint:     api_endpoint,
-		RedisEndpoint:   redis_endpoint,
-		RedisPrefix:     cmdline.NewStringValueDefault("linker"),
-		//ServiceEndpoints:   serviceEndpoints,
+		ExternalConfig:       cmdline.NewStringValue(),
+		LogLevel:             cmdline.NewUintValueDefault(0),
+		KeepalivePeriod:      cmdline.NewUintValueDefault(10),
+		APIEndpoint:          api_endpoint,
+		RedisEndpoint:        redis_endpoint,
+		RedisPrefix:          cmdline.NewStringValueDefault("linker"),
 		RouteTimeout:         cmdline.NewUintValueDefault(10),
 		MessageBulkTime:      cmdline.NewUintValueDefault(50),
 		RedisPoolIdleMax:     cmdline.NewUintValueDefault(100),
@@ -191,7 +159,6 @@ func configureParse() (*GatewayOptions, error) {
 	flag.Var(options.ExternalConfig, "config", "Configure YAML.")
 	flag.Var(options.LogLevel, "log-level", "Log level.")
 	flag.Var(options.APIEndpoint, "endpoint", "Public API binding Endpoint.")
-	flag.Var(options.ManageEndpoint, "manage-endpoint", "Manage API Endpoint.")
 	flag.Var(options.RedisEndpoint, "redis-endpoint", "Redis cache endpoint.")
 	flag.Var(options.RedisPrefix, "redis-prefix", "Redis cache key prefix.")
 	//flag.Var(options.ServiceEndpoints, "service-endpoints", "Service node endpoints.")

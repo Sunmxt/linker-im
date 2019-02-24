@@ -15,26 +15,10 @@ const (
 	ENTITY_DEL = uint8(2)
 )
 
-const (
-	OP_DUMMY       = uint16(0)
-	OP_SUB         = uint16(1)
-	OP_UNSUB       = uint16(2)
-	OP_CONNECT     = uint16(3)
-	OP_KEEPALIVE   = uint16(4)
-	OP_PUSH        = uint16(5)
-	OP_PULL        = uint16(6)
-	OP_GROUP_ENUM  = uint16(7)
-	OP_USER_ENUM   = uint16(8)
-	OP_NS_ENUM     = uint16(9)
-	OP_GROUP_ALTER = uint16(10)
-	OP_USER_ALTER  = uint16(11)
-	OP_NS_ALTER    = uint16(12)
-)
-
 type ConnectV1 struct {
-	Credential string `json:"cre"`
-	Namespace  string `json:"-"`
 	Type       uint8  `json:"-"`
+	Namespace  string `json:"-"`
+	Credential string `json:"cre"`
 }
 
 type ConnectResultV1 struct {
@@ -52,12 +36,14 @@ type EntityAlterV1 struct {
 }
 
 type MessagePushV1 struct {
-	Msgs []MessageBody `json:"msg"`
+	Msgs      []MessageBody `json:"msg"`
+	Namespace string        `json:"-"`
+	Session   string        `json:"-"`
 }
 
 type Subscription struct {
+	Op        uint8  `json:"-"`
 	Namespace string `json:"-"`
 	Session   string `json:"s"`
 	Group     string `json:"g"`
-	Op        uint8  `json:"-"`
 }

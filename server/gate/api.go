@@ -276,6 +276,9 @@ func (g *Gate) InitHTTP() error {
 	log.Info0("Register HTTP endpoint \"/v1/connect\"")
 	g.Router.HandleFunc("/v1/connect", Connect).Methods("POST")
 
+	log.Info0("Register websocket endpoint \"/ws\"")
+	g.Router.HandleFunc("/ws", WebsocketConnect)
+
 	return nil
 }
 
