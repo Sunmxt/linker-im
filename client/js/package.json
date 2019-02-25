@@ -1,0 +1,25 @@
+{
+  "name": "linker.js",
+  "version": "1.0.0",
+  "description": "linker-im javascript client.",
+  "main": "linker.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sunmxt/linker.git"
+  },
+  "keywords": [
+    "push",
+    "im",
+    "websocket",
+    "message"
+  ],
+  "author": "Sunmxt@126.com",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/Sunmxt/linker/issues"
+  },
+  "homepage": "https://github.com/Sunmxt/linker#readme",
+}

@@ -5,6 +5,7 @@ import (
 	"github.com/Sunmxt/linker-im/proto"
 	"github.com/Sunmxt/linker-im/server"
 	ws "github.com/gorilla/websocket"
+	guuid "github.com/satori/go.uuid"
 	"net/http"
 )
 
@@ -13,28 +14,35 @@ var upgrader = ws.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-func wsWriteError(conn *ws.Conn, err string) {
+func wsWriteError(conn *ws.Conn, reqID uint32, msg string) error {
+	return wsWriteProtocolUnit(conn, reqID, &proto.ErrorResponse{
+		Err: WrapErrorMessage(msg, guuid.NewV4().String()),
+	})
 }
 
-func wsWriteProtocolUnit(conn *ws.Conn, reqID uint32, unit proto.ProtocolUnit) {
+func wsWriteConnectError(conn *ws.Conn, msg string) error {
+	return wsWriteProtocolUnit(conn, 0, &proto.ConnectResultV1{
+		AuthError: msg,
+		Session:   "",
+	})
 }
 
-func wsWriteConnectError(conn *ws.Conn, msg string) {
+func wsWriteProtocolUnit(conn *ws.Conn, reqID uint32, unit proto.ProtocolUnit) error {
 	resp := &proto.Request{
-		Body: &proto.ConnectResultV1{
-			AuthError: msg,
-			Session:   "",
-		},
+		RequestID: reqID,
+		Body:      unit,
 	}
 	bin := make([]byte, resp.Len())
 	err := resp.Marshal(bin)
 	if err != nil {
-		log.Error("wsWriteConnectError binary Marshal error: " + err.Error())
-		return
+		log.Error("wsWriteProtocolUnit binary Marshal error: " + err.Error())
+		return err
 	}
 	if err = conn.WriteMessage(ws.BinaryMessage, bin); err != nil {
-		log.Error("wsWriteConnectError failed when writing to connection: " + err.Error())
+		log.Error("wsWriteProtocolUnit failed when writing to connection: " + err.Error())
+		return err
 	}
+	return nil
 }
 
 func WebsocketConnect(w http.ResponseWriter, r *http.Request) {
@@ -70,14 +78,18 @@ func WebsocketConnect(w http.ResponseWriter, r *http.Request) {
 	if result, err = gate.connect(connReq); err != nil {
 		if !server.IsAuthError(err) {
 			log.Error("RPC Error: " + err.Error())
-			wsWriteError(conn, "(rpc error) "+err.Error())
+			wsWriteError(conn, req.RequestID, "(rpc error) "+err.Error())
 		} else {
 			wsWriteConnectError(conn, "Access denied: "+err.Error())
 		}
 		conn.Close()
 		return
 	}
-	wsWriteProtocolUnit(conn, req.RequestID, result)
+	if err = wsWriteProtocolUnit(conn, req.RequestID, result); err != nil {
+		log.Error("WebsocketConnect() failed to write protocol unit: " + err.Error())
+		conn.Close()
+		return
+	}
 	go WebsocketServe(conn)
 }
 

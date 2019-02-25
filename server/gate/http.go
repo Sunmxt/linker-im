@@ -168,7 +168,7 @@ func (ctx *APIRequestContext) ParseNamespace() {
 	}
 }
 
-func (ctx *APIRequestContext) WriteJson(resp interface{}) error {
+func (ctx *APIRequestContext) WriteJSON(resp interface{}) error {
 	raw, err := json.Marshal(resp)
 	if err != nil {
 		return err
@@ -193,17 +193,9 @@ func (ctx *APIRequestContext) Finalize() {
 	if ctx.Code == proto.SERVER_INTERNAL_ERROR {
 		// Log error
 		ctx.Log.Error(ctx.CodeMessage)
-
-		if !gate.config.DebugMode.Value {
-			// Mask error message.
-			ctx.CodeMessage = "Server raise an exception with ID \"" + ctx.RequestID.String() + "\""
-		} else {
-			// Add Request ID to error message
-			ctx.CodeMessage = ctx.CodeMessage + "[ID = " + ctx.RequestID.String() + "]"
-		}
-
+		ctx.CodeMessage = WrapErrorMessage(ctx.CodeMessage, ctx.RequestID.String())
 		// Try to return error with API Format.
-		if err = ctx.WriteJson(proto.HTTPResponse{
+		if err = ctx.WriteJSON(proto.HTTPResponse{
 			Version: 1,
 			Data:    nil,
 			Code:    proto.SERVER_INTERNAL_ERROR,
@@ -217,7 +209,7 @@ func (ctx *APIRequestContext) Finalize() {
 			// Set default message.
 			ctx.CodeMessage = proto.ErrorCodeText(ctx.Code)
 		}
-		if err = ctx.WriteJson(proto.HTTPResponse{
+		if err = ctx.WriteJSON(proto.HTTPResponse{
 			Version: ctx.Version,
 			Data:    ctx.Data,
 			Code:    ctx.Code,

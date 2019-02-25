@@ -92,8 +92,8 @@ func (r *ErrorResponse) Marshal(buf []byte) error {
 	return nil
 }
 
-func (r *ErrorResponse) Unmarshal(raw []byte) error {
-	return nil
+func (r *ErrorResponse) Unmarshal(raw []byte) (uint, error) {
+	return 0, nil
 }
 
 func (r *ErrorResponse) Len() int {
