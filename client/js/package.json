@@ -22,4 +22,8 @@
     "url": "https://github.com/Sunmxt/linker/issues"
   },
   "homepage": "https://github.com/Sunmxt/linker#readme",
+  "devDependencies": {
+    "webpack": "^4.29.5",
+    "webpack-cli": "^3.2.3"
+  }
 }
