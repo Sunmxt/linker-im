@@ -17,7 +17,7 @@ type Gate struct {
 	config     *GatewayOptions
 	ID         server.NodeID
 	HTTP       *http.Server
-	Router     *gmux.Router
+	Router     *http.ServeMux
 	RPCRouter  *gmux.Router
 	RPC        *http.Server
 	LB         *ServiceLB

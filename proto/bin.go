@@ -20,6 +20,7 @@ const (
 	OP_PUSH      = uint16(5)
 	OP_MESSAGE   = uint16(6)
 	OP_ERROR     = uint16(7)
+	OP_CONNECTED = uint16(8)
 	//OP_PULL        = uint16(6)
 	//OP_GROUP_ENUM  = uint16(7)
 	//OP_USER_ENUM   = uint16(8)
@@ -138,8 +139,8 @@ func (r *ConnectV1) Unmarshal(buf []byte) (uint, error) {
 	if uint16(len(buf)) < 5+lenNS+lenCre {
 		return 5, ErrBufferTooShort
 	}
-	r.Namespace = string(buf[3 : 3+lenNS])
-	r.Credential = string(buf[3+lenNS : 3+lenNS+lenCre])
+	r.Namespace = string(buf[5 : 5+lenNS])
+	r.Credential = string(buf[5+lenNS : 5+lenNS+lenCre])
 	return uint(3 + lenNS + lenCre), nil
 }
 
@@ -164,7 +165,7 @@ func (r *ConnectResultV1) Len() int {
 }
 
 func (er *ConnectResultV1) OpType() uint16 {
-	return OP_RESPONSE
+	return OP_CONNECTED
 }
 
 /////////////////////////////////////////////////////////

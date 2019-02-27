@@ -260,21 +260,26 @@ func Connect(w http.ResponseWriter, req *http.Request) {
 }
 
 func (g *Gate) InitHTTP() error {
-	g.Router = gmux.NewRouter()
+	router := gmux.NewRouter()
 
 	log.Info0("Register HTTP endpoint \"/v1/namespace\", \"/v1/group\", \"/v1/user\".")
-	g.Router.HandleFunc("/v1/{entity:namespace|group|user}", EntityList).Methods("GET")
-	g.Router.HandleFunc("/v1/{entity:namespace|group|user}", EntityAlter).Methods("POST", "DELETE")
+	router.HandleFunc("/v1/{entity:namespace|group|user}", EntityList).Methods("GET")
+	router.HandleFunc("/v1/{entity:namespace|group|user}", EntityAlter).Methods("POST", "DELETE")
 
 	log.Info0("Register HTTP endpoint \"/v1/msg\"")
-	g.Router.HandleFunc("/v1/msg", PullMessage).Methods("GET")
-	g.Router.HandleFunc("/v1/msg", PushMessage).Methods("POST")
+	router.HandleFunc("/v1/msg", PullMessage).Methods("GET")
+	router.HandleFunc("/v1/msg", PushMessage).Methods("POST")
 
 	log.Info0("Register HTTP endpoint \"/v1/sub\"")
-	g.Router.HandleFunc("/v1/sub", Subscribe).Methods("POST", "DELETE")
+	router.HandleFunc("/v1/sub", Subscribe).Methods("POST", "DELETE")
 
 	log.Info0("Register HTTP endpoint \"/v1/connect\"")
-	g.Router.HandleFunc("/v1/connect", Connect).Methods("POST")
+	router.HandleFunc("/v1/connect", Connect).Methods("POST")
+
+	g.Router = http.NewServeMux()
+	g.Router.Handle("/v1/", log.TagLogHandler(router, map[string]interface{}{
+		"entity": "http",
+	}))
 
 	log.Info0("Register websocket endpoint \"/ws\"")
 	g.Router.HandleFunc("/ws", WebsocketConnect)
@@ -285,10 +290,8 @@ func (g *Gate) InitHTTP() error {
 func (g *Gate) ServeHTTP() {
 	log.Infof0("Create HTTP Server. Endpoint is \"" + g.config.APIEndpoint.String() + "\"")
 	g.HTTP = &http.Server{
-		Addr: g.config.APIEndpoint.String(),
-		Handler: log.TagLogHandler(g.Router, map[string]interface{}{
-			"entity": "http",
-		}),
+		Addr:    g.config.APIEndpoint.String(),
+		Handler: g.Router,
 	}
 
 	log.Info0("Serving HTTP API...")

@@ -180,6 +180,9 @@ func Panicf(format string, args ...interface{}) {
 }
 
 func copyKV(dst, src map[string]interface{}) {
+	for k, v := range src {
+		dst[k] = v
+	}
 }
 
 func TraceMap(kv map[string]interface{}, args ...interface{}) {

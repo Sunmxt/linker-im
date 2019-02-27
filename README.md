@@ -27,3 +27,17 @@ Or build **docker image**:
 docker build . -t linker-im
 ```
 
+
+
+#### Clients
+
+- [x] Websocket ([**example**](example/websocket))
+- [x] HTTP polling
+- [ ] Java
+
+
+
+
+
+
+

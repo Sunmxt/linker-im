@@ -12,6 +12,9 @@ import (
 var upgrader = ws.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin: func(req *http.Request) bool {
+		return true
+	},
 }
 
 func wsWriteError(conn *ws.Conn, reqID uint32, msg string) error {
@@ -48,9 +51,11 @@ func wsWriteProtocolUnit(conn *ws.Conn, reqID uint32, unit proto.ProtocolUnit) e
 func WebsocketConnect(w http.ResponseWriter, r *http.Request) {
 	var (
 		msgType int
+		consume uint
 		dat     []byte
 		result  *proto.ConnectResultV1
 	)
+	log.Info0("New Websocket client.")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Error("Websocket upgrade failure: " + err.Error())
@@ -69,9 +74,10 @@ func WebsocketConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	connReq := &proto.ConnectV1{}
 	req := &proto.Request{Body: connReq}
-	if _, err = req.Unmarshal(dat); err != nil {
+	if consume, err = req.Unmarshal(dat); err != nil {
+		log.Info0(consume)
 		wsWriteConnectError(conn, "Invalid connect request.")
-		log.Info2("Reject connection for invalid request: " + err.Error())
+		log.Info0("Reject connection for invalid request: " + err.Error())
 		conn.Close()
 		return
 	}
