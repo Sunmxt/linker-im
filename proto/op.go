@@ -36,9 +36,9 @@ type EntityAlterV1 struct {
 }
 
 type MessagePushV1 struct {
-	Msgs      []MessageBody `json:"msg"`
 	Namespace string        `json:"-"`
 	Session   string        `json:"-"`
+	Msgs      []MessageBody `json:"msg"`
 }
 
 type Subscription struct {

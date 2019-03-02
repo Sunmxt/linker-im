@@ -193,7 +193,7 @@ func (ctx *APIRequestContext) Finalize() {
 	if ctx.Code == proto.SERVER_INTERNAL_ERROR {
 		// Log error
 		ctx.Log.Error(ctx.CodeMessage)
-		ctx.CodeMessage = WrapErrorMessage(ctx.CodeMessage, ctx.RequestID.String())
+		ctx.CodeMessage = WrapErrorMessage(ctx.CodeMessage, ctx.RequestID.String(), false)
 		// Try to return error with API Format.
 		if err = ctx.WriteJSON(proto.HTTPResponse{
 			Version: 1,

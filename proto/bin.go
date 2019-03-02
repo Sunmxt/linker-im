@@ -21,13 +21,7 @@ const (
 	OP_MESSAGE   = uint16(6)
 	OP_ERROR     = uint16(7)
 	OP_CONNECTED = uint16(8)
-	//OP_PULL        = uint16(6)
-	//OP_GROUP_ENUM  = uint16(7)
-	//OP_USER_ENUM   = uint16(8)
-	//OP_NS_ENUM     = uint16(9)
-	//OP_GROUP_ALTER = uint16(10)
-	//OP_USER_ALTER  = uint16(11)
-	//OP_NS_ALTER    = uint16(12)
+	OP_PUSH_RES  = uint16(9)
 )
 
 type ProtocolUnit interface {
@@ -58,10 +52,16 @@ func (r *Request) Marshal(buf []byte) error {
 }
 
 func (r *Request) OpType() uint16 {
+	if r.Body == nil {
+		return OP_DUMMY
+	}
 	return r.Body.OpType()
 }
 
 func (r *Request) Len() int {
+	if r.Body == nil {
+		return 6
+	}
 	return 6 + r.Body.Len()
 }
 
@@ -69,12 +69,19 @@ func (r *Request) Unmarshal(raw []byte) (uint, error) {
 	if len(raw) < 6 {
 		return 0, ErrBufferTooShort
 	}
-	r.OpCode = r.Body.OpType()
 	code := binary.BigEndian.Uint16(raw)
+	if r.Body != nil {
+		r.OpCode = r.Body.OpType()
+	} else {
+		r.OpCode = code
+	}
 	if r.OpCode != code {
 		return 0, fmt.Errorf("Invalid protocol type %v", code)
 	}
 	r.RequestID = binary.BigEndian.Uint32(raw[2:])
+	if r.Body == nil {
+		return 6, nil
+	}
 	consume, err := r.Body.Unmarshal(raw[6:])
 	return 6 + consume, err
 }
@@ -251,13 +258,62 @@ func (r *MessagePushV1) Marshal(buf []byte) error {
 }
 
 func (r *MessagePushV1) Unmarshal(raw []byte) (uint, error) {
-	return 0, nil
+	if len(raw) < 6 {
+		return 0, ErrBufferTooShort
+	}
+	msgCount, nsLen, sessionLen, decodePtr := binary.BigEndian.Uint16(raw[4:]), binary.BigEndian.Uint16(raw), binary.BigEndian.Uint16(raw[2:]), uint(6)
+	if len(raw) < int(6+nsLen+sessionLen) {
+		return 0, ErrBufferTooShort
+	}
+	r.Namespace = string(raw[6 : 6+nsLen])
+	r.Session = string(raw[6+nsLen : 6+nsLen+sessionLen])
+	r.Msgs = make([]MessageBody, msgCount)
+	decodePtr += uint(nsLen + sessionLen)
+	for idx := range r.Msgs {
+		consume, err := r.Msgs[idx].Unmarshal(raw[decodePtr:])
+		if err != nil {
+			return decodePtr, err
+		}
+		msgCount--
+		decodePtr += consume
+	}
+	if msgCount > 0 {
+		return decodePtr, ErrBufferTooShort
+	}
+	return decodePtr, nil
 }
 
 func (r *MessagePushV1) Len() int {
-	return 0
+	cidx := 6 + len(r.Namespace) + len(r.Session)
+	if r.Msgs != nil {
+		for idx := range r.Msgs {
+			cidx += r.Msgs[idx].Len()
+		}
+	}
+	return cidx
 }
 
 func (r *MessagePushV1) OpType() uint16 {
 	return OP_PUSH
+}
+
+/////////////////////////////////////////////////////////
+// PushResult :
+/////////////////////////////////////////////////////////
+type PushResultList []*PushResult
+
+func (r PushResultList) Marshal(buf []byte) error {
+	return nil
+}
+
+func (r PushResultList) Unmarshal(raw []byte) (uint, error) {
+	return 0, nil
+}
+
+func (r PushResultList) Len() int {
+	return 0
+}
+
+func (r PushResultList) OpType() uint16 {
+	return OP_PUSH_RES
 }

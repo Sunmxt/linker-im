@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"fmt"
 	"github.com/Sunmxt/linker-im/log"
 	"github.com/Sunmxt/linker-im/proto"
 	"github.com/Sunmxt/linker-im/server"
@@ -17,9 +18,15 @@ var upgrader = ws.Upgrader{
 	},
 }
 
-func wsWriteError(conn *ws.Conn, reqID uint32, msg string) error {
+func wsWriteError(conn *ws.Conn, reqID uint32, msg string, ignoreDebug bool) error {
 	return wsWriteProtocolUnit(conn, reqID, &proto.ErrorResponse{
-		Err: WrapErrorMessage(msg, guuid.NewV4().String()),
+		Err: WrapErrorMessage(msg, guuid.NewV4().String(), ignoreDebug),
+	})
+}
+
+func wsWriteSuccess(conn *ws.Conn, reqID uint32) error {
+	return wsWriteProtocolUnit(conn, reqID, &proto.ErrorResponse{
+		Err: "",
 	})
 }
 
@@ -51,11 +58,9 @@ func wsWriteProtocolUnit(conn *ws.Conn, reqID uint32, unit proto.ProtocolUnit) e
 func WebsocketConnect(w http.ResponseWriter, r *http.Request) {
 	var (
 		msgType int
-		consume uint
 		dat     []byte
 		result  *proto.ConnectResultV1
 	)
-	log.Info0("New Websocket client.")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Error("Websocket upgrade failure: " + err.Error())
@@ -74,17 +79,16 @@ func WebsocketConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	connReq := &proto.ConnectV1{}
 	req := &proto.Request{Body: connReq}
-	if consume, err = req.Unmarshal(dat); err != nil {
-		log.Info0(consume)
+	if _, err = req.Unmarshal(dat); err != nil {
 		wsWriteConnectError(conn, "Invalid connect request.")
-		log.Info0("Reject connection for invalid request: " + err.Error())
+		log.Info2("Reject connection for invalid request: " + err.Error())
 		conn.Close()
 		return
 	}
 	if result, err = gate.connect(connReq); err != nil {
 		if !server.IsAuthError(err) {
 			log.Error("RPC Error: " + err.Error())
-			wsWriteError(conn, req.RequestID, "(rpc error) "+err.Error())
+			wsWriteError(conn, req.RequestID, "(rpc error) "+err.Error(), false)
 		} else {
 			wsWriteConnectError(conn, "Access denied: "+err.Error())
 		}
@@ -97,9 +101,85 @@ func WebsocketConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go WebsocketServe(conn)
+	go WebsocketPush(conn)
+}
+
+func WebsocketPush(conn *ws.Conn) {
+}
+
+func WebsocketKeepalive(conn *ws.Conn, req *proto.Request) error {
+	return wsWriteError(conn, req.RequestID, "Unsupported.", true)
 }
 
 func WebsocketServe(conn *ws.Conn) {
-	log.Warn("WebsocketServe not implemented.")
-	conn.Close()
+WebsocketLoopOp:
+	for {
+		msgType, dat, err := conn.ReadMessage()
+		if err != nil {
+			if ws.IsCloseError(err, ws.CloseGoingAway, ws.CloseNormalClosure, ws.CloseNoStatusReceived, ws.CloseAbnormalClosure) {
+				conn.Close()
+				return
+			} else {
+				log.Error("Failed to read websocket message: " + err.Error())
+			}
+			continue
+		}
+		if msgType != ws.BinaryMessage {
+			wsWriteError(conn, 0, "Invalid type of websocket message.", true)
+			continue
+		}
+		req, consume := &proto.Request{}, uint(0)
+		consume, err = req.Unmarshal(dat)
+		if err != nil {
+			wsWriteError(conn, 0, "Invalid protocol unit: "+err.Error(), true)
+			continue
+		}
+		switch req.OpCode {
+		case proto.OP_SUB:
+			sub := proto.Subscription{}
+			bodyConsume, bodyErr := sub.Unmarshal(dat[6:])
+			consume += bodyConsume
+			if bodyErr != nil {
+				wsWriteError(conn, req.RequestID, "Invalid protocol unit: "+bodyErr.Error(), true)
+				continue WebsocketLoopOp
+			}
+			err = gate.subscribe(sub)
+			if err == nil {
+				wsWriteSuccess(conn, req.RequestID)
+			}
+
+		case proto.OP_KEEPALIVE:
+			WebsocketKeepalive(conn, req)
+			continue
+
+		case proto.OP_PUSH:
+			push := proto.MessagePushV1{}
+			bodyConsume, bodyErr := push.Unmarshal(dat[6:])
+			consume += bodyConsume
+			if bodyErr != nil {
+				wsWriteError(conn, req.RequestID, "Invalid protocol unit: "+bodyErr.Error(), true)
+				continue WebsocketLoopOp
+			}
+			result, pushErr := gate.push(push.Namespace, push.Session, push.Msgs)
+			if err == nil {
+				err = wsWriteProtocolUnit(conn, req.RequestID, proto.PushResultList(result))
+			} else {
+				err = pushErr
+			}
+
+		default:
+			wsWriteError(conn, req.RequestID, fmt.Sprintf("Unsupported protocol unit: %v", req.OpCode), true)
+		}
+		if err != nil {
+			if authErr, isAuthErr := err.(server.AuthError); !isAuthErr {
+				log.Error("RPC Error: " + err.Error())
+				wsWriteError(conn, req.RequestID, "(rpc failure) "+err.Error(), false)
+			} else {
+				wsWriteError(conn, req.RequestID, authErr.Error(), true)
+			}
+		}
+		if consume != uint(len(dat)) {
+			log.Warnf("Length of buffer (%v) is not equal to length of consumed bytes (%v).", uint(len(dat)), consume)
+		}
+	}
 }

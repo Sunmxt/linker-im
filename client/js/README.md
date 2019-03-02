@@ -15,8 +15,16 @@ npx webpack
 
 #### Getting started
 
-```javascript
-wsc = new linker.Client('ws://localhost:12360/ws')
-wsc.connect("bbb", "user1")
-```
+- Connect to server.
+
+  ```json
+  wsc = new linker.Client('ws://localhost:12360/ws')
+  wsc.connect("myNamespacee", "myCredential")
+  ```
+
+- Subscribe
+
+  ```json
+  wsc.subscribe('room1')
+  ```
 
